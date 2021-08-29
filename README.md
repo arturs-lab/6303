@@ -15,8 +15,10 @@ Note files:<br>
 format is [note][octave],[duration]<br>
 for pause use P0,[duration]<br>
 Notes sequence including half notes:<br>
-C   d   D   e   E   F   g   G   a   A   b   B<br>
-C  C#   D  D#   E   F  F#   G  G#   A  A#   B<br>
+<pre>
+C   d   D   e   E   F   g   G   a   A   b   B
+C  C#   D  D#   E   F  F#   G  G#   A  A#   B
+</pre>
 <br>
 To convert notes file to asm include use following command in Linux shell:<br>
 <pre>cat LightMyFire.note | tr -d '\r' | ./sn76notes2db.bash > sn76light.asm</pre><br>
