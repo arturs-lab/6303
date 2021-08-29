@@ -4536,12 +4536,16 @@ sn76init	jsr sn76off
 	staa sn76ch3a	; channel 0 attenuation
 	staa sn76chna	; noise attenuation
 
+	ldaa #$07
+	staa sn76chns	; noise source
+
 	ldx #$0083	; A4
 	stx sn76ch1f
 	ldx #$006e	; C5
 	stx sn76ch2f
 	ldx #$0057	; E5
 	stx sn76ch3f
+
 	ldx #$0004
 	stx sn76chna
 
@@ -4591,6 +4595,7 @@ sn76489t	jsr sn76init
 	ldab #$c0	; channel 2
 	jsr sn74frqtest
 
+	ldaa #$04
 	jsr sn74scan	; full frequency sweep
 
 	ldaa #$df	; channel 2 attenuation
@@ -4661,8 +4666,8 @@ sn76noise subroutine
 	ldaa #$00	; noise channel N/512
 	staa sn76chns
 
-.1	ldaa sn76chns
-	jsr txhex
+;	ldaa sn76chns
+.1	jsr txhex
 	ldaa #$0d
 	jsr txbyte
 	ldaa #$e0	; noise channel
@@ -4673,19 +4678,20 @@ sn76noise subroutine
 
 	inc sn76chns
 
-	ldaa #$04
-	cmpa sn76chns
+	ldaa sn76chns
+	cmpa #$04
 	bne .1
 
 	ldaa #$0a
 	jsr txbyte
 	ldab #$c0	; channel 2
+	ldaa #$08
 	jsr sn74scan	; full frequency sweep
 	ldaa #$0a
 	jsr txbyte
 
-.2	ldaa sn76chns
-	jsr txhex
+	ldaa sn76chns
+.2	jsr txhex
 	ldaa #$0d
 	jsr txbyte
 	ldaa #$e0	; noise channel
@@ -4696,13 +4702,14 @@ sn76noise subroutine
 
 	inc sn76chns
 
-	ldaa #$08
-	cmpa sn76chns
+	ldaa sn76chns
+	cmpa #$08
 	bne .2
 
 	ldaa #$0a
 	jsr txbyte
 	ldab #$c0	; channel 2
+	ldaa #$08
 	jsr sn74scan	; full frequency sweep
 
 	ldaa #$ff	; noise channel attenuation
@@ -4749,7 +4756,8 @@ sn74frqtest subroutine on entry B contains channel number
 
 	rts
 
-sn74scan subroutine on entry B contains channel number
+sn74scan subroutine on entry B contains channel number, A contains speed
+	psha
 .1	ldx #sn76chna
 	jsr txhexword
 	ldaa #$0d
@@ -4758,12 +4766,13 @@ sn74scan subroutine on entry B contains channel number
 	tba		; set channel
 	jsr setsnf
 
+	pula
+	psha
 	pshb
-	ldab #$02
-.3	ldaa #$ff
-.2	deca
+.3	ldab #$ff
+.2	decb
 	bne .2
-	decb
+	deca
 	bne .3
 	pulb
 
@@ -4772,6 +4781,7 @@ sn74scan subroutine on entry B contains channel number
 	stx sn76chna
 	cpx #$0400
 	bne .1
+	pula
 
 	ldx #$0004
 	stx sn76chna
@@ -4780,23 +4790,24 @@ sn74scan subroutine on entry B contains channel number
 
 ; set SN registers to values pointed to by X
 setsnregs subroutine
-	ldab #$80
+	ldx #sn76ch1f
+setsnregx	ldab #$80
 .1	jsr setsnf
 	inx
 	inx
-	incb
+	addb #$10
 	ldaa 0,X
 	aba
 	jsr setsn
 	inx
-	incb
+	addb #$10
 	cmpb #$e0
 	bne .1
 	ldaa 0,X	; noise control
 	aba
 	jsr setsn
 	inx
-	incb
+	addb #$10
 	ldaa 0,X	; noise attenuation
 	aba
 	bra setsn
