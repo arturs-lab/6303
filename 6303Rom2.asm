@@ -48,6 +48,19 @@ RESET	  subroutine
 
 	lds #$00ff		; temporary stack location
 
+	clra			; initialize ram banks
+	staa RAMB4
+	inca
+	staa RAMB8
+	inca
+	staa RAMBc
+
+	ldaa #$00
+	staa REG_PORT1
+	ldaa #$ff
+	staa REG_DDRP1
+;	jsr lcdinit
+
 	IF SN76DBG < 3
 	jsr sn76off		; initialize sound chip so it does not make noise
 	ENDIF
@@ -70,16 +83,16 @@ RESET	  subroutine
 	LDX   #GOADDR	; initialize 'g' jump address to GOADDR = RAMLO + $1000
 	STX   GOPTR
 ;;
-;        LDAA  #$00    ; this was used for testing of delay timing
+;        CLRA    ; this was used for testing of delay timing
 ;        staa CPLDh
-;        LDAA  #$01    
+;        INCA    
 ;        staa CPLDh
-;        LDAA  #$00    
 ;;
 	LDX   #DEL20MS    ; delay approx 20ms
 DELBOOT DEX
         BNE   DELBOOT       
 ;;
+;        DECA    
 ;        staa CPLDh
 ;;        
         LDAA  #$F7
@@ -92,8 +105,6 @@ DELBOOT DEX
 ;        STAA	REG_DDRP6       ;P6 DDR  = OUTPUT 
         LDAA  #$00
         STAA  LED       ;P6 PORT = All LEDs OFF
-;	ldaa #$01	; 1st phase, just show that code is running and not stuck
-;	staa LED
         
         LDAA  #250
         STAA  BLINK_CT
@@ -108,20 +119,14 @@ DELBOOT DEX
 
         JSR   FLASHP6   ;Blink LEDs 5x
 
-;        LDAA  #$02    ; USED FOR TIMING TESTING
-;        staa CPLDh
         LDAA   #25     ;Duration=1/4sec.
         LDAB   #$19    ;Frequency ($10 approx 3KHZ)
         JSR    BEEP    ;Call BEEP
-;        LDAA  #$00    
-;        staa CPLDh
 	ldaa #$01	; initialize LED blinky
 	staa LED
         
 MONITOR LDX   #BOOTMSG
         JSR   PUTS      ;Startup Message
-;	ldaa #$03	; 3rd phase
-;	staa LED
         
         LDAA  REG_RDR   ;Clear RXD flags & flush buffer
 
@@ -136,14 +141,6 @@ BLINK1  DEC   BLINK_CT  ;Decrement the blink counter (250ms based on delay above
         LDAA  #$03	; invert 2 LSB LED bits
         EORA  LED
         STAA  LED
-;        LDAA  LED ;P6 PORT
-;        CMPA  #$01      ;Was previous output = LSB only set?
-;        BEQ   BLINK2    ;Yes = Set $02 output
-;        LDAA  #$01      ; No = Set $01 output 
-;        STAA  LED ;P6 PORT
-;        JMP   GETCHR    ; continue...
-;BLINK2  LDAA  #$02      ; Set $70 output
-;        STAA  LED ;P6 PORT
 
 GETCHR  JSR   INCHRIF   ;Get input if available
         BCS	  NOCHR     ; No Data Ready then loop again
@@ -3789,16 +3786,24 @@ swp1	ldaa 0,x
 	stx ADDR_HI
 	jmp swp1
 
-swpex ldaa #06		; map ROM to RAM page 6
+swpex ldx #swp2ram
+	jsr callbank
+
+	ldaa #06		; map ROM to RAM page 6
 	staa RAMBc
 	pula			; restore original mapping for bank 2
 	staa RAMB8
 	ldaa #02
 	staa ROMB		; switch to RAM page 6 for C000-FFFF
+
+	ldx #$e032		; call procedure to print message "Running from ROM" while swapping O to A
+	jsr callbank
+
 	pulx			; restore original register values
 	pula
 	rts
 
+	org BANKSW
 	INCLUDE callbank.asm
 
 calltest
@@ -3818,7 +3823,7 @@ switchtest
 
 ; sn76
 	jsr sn76play
-	ldx #$e2d7
+	ldx #$e2e3
 	jsr callbank
 	rts
 
@@ -3840,6 +3845,20 @@ switchtest
 
 	INCLUDE tape.asm
 
+	INCLUDE lcddriver.asm
+
+lcdtest
+	jsr lcdinit
+	jsr lcdinit
+	jsr lcdprnsp
+	dc "Hello World!",$0
+	ldab #$c0
+	jsr lcdwrc
+	jsr lcdprnsp
+	dc "hi",$0
+	rts
+
+
 ; place text to be sent immediately after jsr
 ; execution will return to instruction right behind the text
 ; X gets destroyed, so pshx it if needed
@@ -3856,7 +3875,8 @@ ok		dc "OK",$0d,$0a,$0
 fail		dc "FAIL",$0d,$0a,$0
 crlf		dc $0d,$0a,$0
 
-	org $f7d1
+	org UTIL
+	INCLUDE util.asm
 	INCLUDE txrx.asm
 
  ;******************************************************************  
