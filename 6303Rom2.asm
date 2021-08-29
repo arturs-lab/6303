@@ -4922,7 +4922,7 @@ sn76play subroutine
 	ELSE
 .1
 	ENDIF
-	ldx #sn76chab		; 90us
+	ldx #sn76chab		; 60us
 	jsr sn76procnote
 
 	IF BLINKY > 0
@@ -4942,7 +4942,7 @@ sn76play subroutine
 	ldaa #"3"
 	ENDIF
 
-	ldx #sn76chcb		; 80us
+	ldx #sn76chcb		; 60us
 	jsr sn76procnote
 
 	IF BLINKY > 0
@@ -4951,7 +4951,7 @@ sn76play subroutine
 	staa CPLDh
 	ENDIF
 
-	jsr setsnregs	; play note 700us
+	jsr setsnregs	; play note 900us
 
 	IF BLINKY > 0
 	ldaa #$30
@@ -5163,8 +5163,8 @@ notes	dc.w 989,933	; A#1 B1
 ; noise
 	dc.w   8,  4,  2,  1	; 74 
 
-	INCLUDE beverly.asm
-
+;	INCLUDE beverly.asm
+	INCLUDE mississippi.asm
 
 sn76ch0	dc "Channel 0",$0d,$0a,$0
 sn76ch1	dc "Channel 1",$0d,$0a,$0
