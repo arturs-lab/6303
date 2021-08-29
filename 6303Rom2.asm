@@ -277,7 +277,7 @@ RESET	  subroutine
 	SEI            ;Disable interrupts
 
 	lds #$00ff		; temporary stack location
-	jsr sn76off		; initialize sound chip so it does not make noise
+;	jsr sn76off		; initialize sound chip so it does not make noise
 
 	LDX #RAMLO		; fill RAM with a known pattern
 	LDAA	#$AA
@@ -325,6 +325,7 @@ DELBOOT DEX
         LDAA  #250
         STAA  BLINK_CT
         JSR   SERINIT   ;INIT INTERNAL UART, INTERNAL CLOCK, 115200 BAUD
+	jsr sn76off		; initialize sound chip so it does not make noise
         JSR   IRQINIT   ;Populate IRQ Jump Table
 ;	cli	; enable interrupts
 
@@ -4821,8 +4822,13 @@ setsnregx	ldab #$80
 	addb #$10
 	ldaa sn76chna	; noise attenuation
 	aba
-	bra setsn
-;	rts
+;	bra setsn
+	jsr setsn
+	ldaa #$0d
+	jsr txbyte
+	ldaa #$0a
+	jsr txbyte
+	rts
 
 ; set two byte frequency pointed to by X for channel given in B
 setsnf
@@ -4846,6 +4852,9 @@ setsnf
 
 ; set one byte register given in A
 setsn	staa CPLDl
+	jsr txhexbyte
+	ldaa #" "
+	jsr txbyte
 	ldaa SPREG
 	oraa #SN76SEL
 	staa SPREG
@@ -4859,6 +4868,12 @@ setsn	staa CPLDl
 
 sn76play subroutine
 	jsr sn76init	; initialize regs
+
+	ldaa #$0d
+	jsr txbyte
+	ldaa #$0a
+	jsr txbyte
+
 	ldaa #$0f
 	staa sn76chna	; noise attenuation
 	ldx song
@@ -4872,83 +4887,106 @@ sn76play subroutine
 	ldx song+2		; beginning of song channel C
 	stx sn76chcb
 	stx sn76chc
-	ldaa #0
+	clra
 	staa sn76chacn
 	staa sn76chbcn
 	staa sn76chccn
 	staa CPLDh
 
-.1	ldx #sn76chab
+.1	ldaa #$03
+	eora CPLDh
+	staa CPLDh
+	ldaa #"1"
+
+; process all notes 25us
+;.1
+	ldx #sn76chab		; 90us
 	jsr sn76procnote
 
-	ldx #sn76chbb
+	ldaa #$06
+	eora CPLDh
+	staa CPLDh
+	ldaa #"2"
+
+	ldx #sn76chbb		; 80us
 	jsr sn76procnote
 
-	ldx #sn76chcb
+	ldaa #$0c
+	eora CPLDh
+	staa CPLDh
+	ldaa #"3"
+
+	ldx #sn76chcb		; 80us
 	jsr sn76procnote
 
-	jsr setsnregs	; play note
+	ldaa #$18
+	eora CPLDh
+	staa CPLDh
 
-	ldx sn76tmpo	; delay one song tick
+	jsr setsnregs	; play note 700us
+
+	ldaa #$30
+	eora CPLDh
+	staa CPLDh
+
+	ldx sn76tmpo	; delay one song tick at $1800 tempo = about 13.4ms
 .5	dex
 	bne .5
 
-	bra .1
+	ldaa #$20
+	eora CPLDh
+	staa CPLDh
+
+	bra .1	; complete song loop. at $1800 tempo = about 14.32ms
+
 
 ; on entry X points to sn76ch{a,b,c}b - beginning of song for channel {a,b,c} is stored there
 sn76procnote subroutine
 	stx sn76curchan			; store pointer to current channel
-	ldaa sn76chacn - sn76chab,x	; load note duration counter
+	ldab sn76chacn - sn76chab,x	; load note duration counter
 	beq .1				; still playing current note?
-	deca					; yes, decrement note time
-	staa sn76chacn - sn76chab,x	; store note duration counter
-	ldaa #$f0
-	eora CPLDh
-	bra .3
+	decb					; yes, decrement note time
+	stab sn76chacn - sn76chab,x	; store note duration counter
+	ldab #14	; equalize duration of new note and same note tick
+.7	decb
+	bne .7
+	rts
 
 .1	ldx sn76cha - sn76chab,x	; load pointer to current note
 
 	pshx
-	ldx sn76curchan
-	jsr txhexword
-	ldaa #" "
-	jsr txbyte
-	pulx
+	jsr txdbg1
 
 	ldd 0,x				; load note and duration
 
-	pshx
-	xgdx
-	pshx
-	stx sn76temp
+	std sn76temp
 	ldx #sn76temp
 	jsr txhexword
 	ldaa #$0d
 	jsr txbyte
 	ldaa #$0a
 	jsr txbyte
+	ldd sn76temp
 	pulx
-	xgdx
-	pulx
-
+	
 	psha					; save note for later
 	pshb					; save attenuation for later
-	ldaa #1				; extract duration
-	andb #$0f
-	beq .5
-.6	asla
+	ldaa #1				; initialize duration shifter
+	andb #$0f				; extract duration from attenuation/duration parameter
+	beq .5				; if duration = 0 -> shortest tone
+.6	asla					; otherwise shift A the number of bits in B to left
 	decb
 	bne .6
 .5	ldx sn76curchan			; load pointer to beginnign of cur channel
 	staa sn76chacn - sn76chab,x	; store note duration counter
-	pulb
-	tba					; extract attenuation
-	anda #$f0
+	pula					; extract attenuation
 	lsra
 	lsra
 	lsra
 	lsra
+	anda #$0f
 	staa sn76ch1a - sn76chab,x	; store note attenuation
+
 	ldd sn76cha - sn76chab,x	; load pointer to current note
 	xgdx
 	inx		; point to next note
@@ -4959,53 +4997,72 @@ sn76procnote subroutine
 	pulb					; get current note
 	tba					; just to update flags
 	beq pause				; pause note
-	cmpb #255				; end of song?
-	beq endsong
-	cmpb #254	; loop?
-	bne .4
+	cmpb #74
+	bcs procnote
+
+	jsr txhexbyte
+	ldaa #$0d
+	jsr txbyte
+	ldaa #$0a
+	jsr txbyte
+
+	cmpb #253				; noise?
+	bcs noise				; yes
+	bne loop
+	ldaa #$0f				; turn off noise
+	staa sn76chna - sn76chcb,x	; store it in noise attenuation
+	rts
+
+loop	cmpb #254				; loop?
+	bne endsong
 ;	ldx sn76curchan			; load pointer to beginnign of cur channel
 	ldd 0,x				; get address of beginning of notes for current channel
 	std sn76cha - sn76chab,x	; point to first note
 	bra .1				; start over, read the note
-.4	ldx #notes	; point to note table
 
-;	tba
-;	jsr txhexbyte
-;	ldaa #" "
-;	jsr txbyte
-
+procnote	ldx #notes	; point to note table
 	decb
 	aslb
 	abx		; add note offset
-
-;	tba
-;	jsr txhexbyte
-;	ldaa #" "
-;	jsr txbyte
-;	jsr txhexword
-;	ldaa #$0d
-;	jsr txbyte
-;	ldaa #$0a
-;	jsr txbyte
-
 	ldd 0,x				; get note value
 	ldx sn76curchan			; get current channel pointer
-	std sn76ch1f-sn76chab,x	; store note value in appropriate channel's memory
-	ldaa #$f0
-	anda CPLDh
+	std sn76ch1f-sn76chab,x		; store note value in appropriate channel's memory
 	bra .3
-pause	ldaa #20	; delay to account for skipped code
+
+pause	ldaa #4	; equalize duration of note and pause processing
 .2	deca
 	bne .2
 	ldaa #$0f
 	staa sn76ch1a - sn76chab,x	; store note attenuation
-	oraa CPLDh
-.3	staa CPLDh
+.3	rts
 
-	rts
-
+noise	ldaa sn76ch1a - sn76chab,x	; get note attenuation
+	staa sn76chna - sn76chcb,x	; store it in noise attenuation
+	ldaa #$0f
+	staa sn76ch1a - sn76chab,x	; set note attenuation
+	clc
+	sbcb #73
+	clra
+	ldx sn76curchan			; get current channel pointer
+	std sn76ch1f-sn76chab,x		; store note value in appropriate channel's memory
+	bra .3
+	
 endsong	pulx		; remove extra return address from stack
+	ldaa #0
+	staa CPLDh
 	jmp sn76off	; turn off audio and exit
+
+txdbg1
+	jsr txbyte
+	ldaa #" "
+	jsr txbyte
+	stx sn76temp
+	ldx #sn76temp
+	jsr txhexword
+	ldaa #" "
+	jsr txbyte
+	ldx sn76temp
+	rts
 
 sn76chab	equ RAMLO + 0	; song begin ch 1
 sn76cha	equ RAMLO + 2	; current note pointer ch 1
@@ -5047,11 +5104,14 @@ notes	dc.w 989,933	; A#1 B1
 	dc.w  28, 26, 25, 23, 22, 21, 19, 18, 17, 16, 15	; C7 - A#7	63
 	;      0   1   2   3   4   5   6   7   8   9  10  11
 	;      C  C#   D  D#   E   F  F#   G  G#   A  A#   B
+; noise
+	dc.w   8,  4,  2,  1	; 74 
 
 song	dc.w $1800	; playback speed
 	dc.w chc
 	dc.w chb
-cha	dc.b 32,5
+cha
+	dc.b 32,5
 	dc.b 35,4
 	dc.b 35,3
 	dc.b 32,4
@@ -5205,7 +5265,8 @@ cha	dc.b 32,5
 
 	dc.b 255,255
 
-chb	dc.b 0,7
+chb
+	dc.b 0,7
 	dc.b 0,7
 	dc.b 0,7
 	dc.b 0,7
@@ -5355,15 +5416,12 @@ chb	dc.b 0,7
 	dc.b 13,4
 	dc.b 11,4
 
+	dc.b 0,7
 	dc.b 0,7
 
 	dc.b 254,255
 
-chc	dc.b 0,7
-	dc.b 0,7
-	dc.b 0,7
-	dc.b 0,7
-
+chc
 	dc.b 0,7
 	dc.b 0,7
 	dc.b 0,7
@@ -5389,6 +5447,12 @@ chc	dc.b 0,7
 	dc.b 0,7
 	dc.b 0,7
 
+	dc.b 0,7
+	dc.b 0,7
+	dc.b 0,7
+	dc.b 0,7
+
+	dc.b 0,7
 	dc.b 0,7
 
 	dc.b 254,255
