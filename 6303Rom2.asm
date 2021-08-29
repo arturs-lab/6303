@@ -3840,12 +3840,23 @@ switchtest
 
 	INCLUDE tape.asm
 
-extram	dc "External RAM ",$0d,$0a,$0
+; place text to be sent immediately after jsr
+; execution will return to instruction right behind the text
+; X gets destroyed, so pshx it if needed
+testsp
+	pshx
+	jsr txstrsp
+	dc "This worked",$0d,$0a,$0
+	jsr txstrsp
+	dc "And this too!",$0d,$0a,$0
+	pulx
+	rts
+
 ok		dc "OK",$0d,$0a,$0
 fail		dc "FAIL",$0d,$0a,$0
 crlf		dc $0d,$0a,$0
 
-	org $f7d8
+	org $f7d1
 	INCLUDE txrx.asm
 
  ;******************************************************************  

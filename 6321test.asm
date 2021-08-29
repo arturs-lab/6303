@@ -50,8 +50,8 @@ test6321
 
 	ldaa #$0a
 	jsr txbyte
-	ldx #conf21d	; send message about success
-	jsr txstring
+	jsr txstrsp
+conf21d	dc "A -> B ",$0
 	ldaa RAMLO
 	beq .5
 	jsr cmpfailmsg
@@ -99,8 +99,8 @@ test6321
 
 	ldaa #$0a
 	jsr txbyte
-	ldx #conf21e	; send message about success
-	jsr txstring
+	jsr txstrsp
+conf21e	dc "B -> A ",$0
 	ldaa RAMLO
 	bne cmpfailmsg
 	ldx #ok
@@ -124,8 +124,8 @@ cmpxit
 		
 ; configure HD6321 ports A and B as inputs
 conf21ABin
-	ldx #conf21f
-	jsr txstring
+	jsr txstrsp
+conf21f	dc "Configuring HD6321 PRA and PRB input",$0d,$0a,$0
 	ldaa #$30		; select DDRB,CA2, CB2 outputs
 	staa CRB		; write that to CRB
 	staa CRA		; write that to CRA
@@ -139,8 +139,8 @@ conf21ABin
 
 ; configure HD6321 port A as output and port B as input
 conf21Aout
-	ldx #conf21a
-	jsr txstring
+	jsr txstrsp
+conf21a	dc "Configuring HD6321 PRA output PRB input",$0d,$0a,$0
 	ldaa #$30		; select DDRB,CA2, CB2 outputs
 	staa CRB		; write that to CRB
 	staa CRA		; write that to CRA
@@ -155,8 +155,8 @@ conf21Aout
 
 ; configure HD6321 port B as output and port A as input
 conf21Bout
-	ldx #conf21c
-	jsr txstring
+	jsr txstrsp
+conf21c	dc "Configuring HD6321 PRA input PRB output",$0d,$0a,$0
 	ldaa #$30		; select DDRA,CA2 output
 	staa CRA		; write that to CRA
 	staa CRB		; write that to CRB
@@ -169,9 +169,4 @@ conf21Bout
 	staa CRB		; and to CRB
 	rts
 
-conf21a	dc "Configuring HD6321 PRA output PRB input",$0d,$0a,$0
 conf21b	dc "Testing ports",$0d,$0a," W     R",$0d,$0a,$0
-conf21c	dc "Configuring HD6321 PRA input PRB output",$0d,$0a,$0
-conf21d	dc "A -> B ",$0
-conf21e	dc "B -> A ",$0
-conf21f	dc "Configuring HD6321 PRA and PRB input",$0d,$0a,$0
