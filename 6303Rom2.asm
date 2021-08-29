@@ -76,11 +76,6 @@ DEL125MS	equ $5200	; delay 125 ms originally 21937
 DELMAX	equ $FFFF	; maximim delay, approx 384ms
 DELBEEP	equ 18934	; beep delay orig $300C=12300
 
-AYSEL		equ $11d0	; select AY chip, $11d0-$11d1
-SNDSEL	equ $11d2	; speccy sound IF $11d2
-MIC		equ $02	; microphone sound input (tape) is on D0,
-				; sound output register is on D1
-AUDIOSTAT	equ $11d3	; HD6321 IRQ lines
 ; HD6321 or W6522 chip $11c0 - 11cf
 hd6321	equ $11c0	; HD6321 PIA
 PRA		equ hd6321
@@ -89,7 +84,14 @@ DDRA		equ hd6321
 DDRB		equ hd6321 + 2
 CRA		equ hd6321 + 1
 CRB		equ hd6321 + 3
-EXTSEL	equ $11d8	; external select connector $11e4 - 11ef
+
+AYSEL		equ $11d0	; select AY chip, $11d0-$11d1
+SNDSEL	equ $11d2	; speccy sound IF $11d2
+MIC		equ $02	; microphone sound input (tape) is on D0,
+				; sound output register is on D1
+AUDIOSTAT	equ $11d3	; HD6321 IRQ lines
+EXTSEL	equ $11d8	; external select connector $11d4 - 11df
+
 RAMB4		equ $11f8	; low ram ($4000-$7FFF) bank mapping
 RAMB8		equ $11f9	; high  ram ($8000-$BFFF) bank mapping
 RAMBc		equ $11fa	; ram in ROM area($C000-$FFFF) bank mapping
@@ -4504,10 +4506,10 @@ sn76489
 	ldaa #$ff	; noise attenuation
 	jsr setsn
 
-	ldaa #$b0	; tone 3 attenuation
+	ldaa #$bf	; tone 3 attenuation
 	jsr setsn
 
-	ldaa #$d0	; tone 2 attenuation
+	ldaa #$df	; tone 2 attenuation
 	jsr setsn
 
 	ldaa #$90	; tone 1 attenuation
@@ -4517,18 +4519,39 @@ sn76489
 	jsr txhexword
 	ldaa #$0d
 	jsr txbyte
-	ldx t1
+	ldx #t1
 	ldab #$80	; channel 0
 	jsr setsnf
 
 	ldaa #x3
 	jsr dly1
 
-.3	ldx t1
+	ldd t1	; have to use D because can't shift X
+	asld
+	std t1
+	xgdx		; have to use X because can't compare D
+	cpx #$0400
+	bne .2
+
+	ldx #$0001
+	stx t1
+
+.3	ldx #t1
+	jsr txhexword
+	ldaa #$0d
+	jsr txbyte
+	ldx #t1
+	ldab #$80	; channel 0
+	jsr setsnf
+
+	ldaa #x3
+	jsr dly1
+
+	ldx t1
 	inx
 	stx t1
 	cpx #$0400
-	bne .2
+	bne .3
 
 	ldx #$0001
 	stx t1
@@ -4557,7 +4580,9 @@ setsnf
 	lsrd
 	lsrd
 	tba		; tone 1 pitch byte 2
+	anda #$3f
 	jsr setsn
+	rts
 
 ; set one byte register
 setsn	staa CPLDl
@@ -4583,6 +4608,15 @@ t4	dc.w $0057	; E5
 ; n = 1843230/(32*f)
 ; A4 = 131 $83
 
+r6551s	subroutine
+
+r6551	ldab #$ff
+.1	staa EXTSEL
+;	ldaa #$01
+;	jsr dly1
+	decb
+	bne .1
+	rts
 
 ; connect port A to port B and CA1 to CB2 and CA2 to CB1
 
