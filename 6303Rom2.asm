@@ -36,7 +36,8 @@
 	    processor	HD6303
 
 ; debugging level of sn76 code
-SN76DBG = 0
+SN76DBG = 1
+SN76PLS = 0
 
 END         equ $FF     ; Mark END OF TEXT      
 REG_DDRP1   equ $00     ; PORT 1 DDR
@@ -4040,8 +4041,11 @@ swpex ldaa #07		; map ROM to RAM page 7
 	INCLUDE sn76init.asm
 	INCLUDE sn76test.asm
 	INCLUDE sn76driver.asm
-	INCLUDE sn76beverly2.asm
-;	INCLUDE sn76mississippi.asm
+
+	INCLUDE notes.asm
+
+;	INCLUDE sn76beverly2.asm
+	INCLUDE sn76mississippi.asm
 
 	INCLUDE r6551driver.asm
 	INCLUDE r6551test.asm
@@ -4128,6 +4132,10 @@ txhex
 	pulb
 	pula
 	rts
+
+txword subroutine ; transmit two bytes given in D
+	jsr txbyte
+	tba
 
 txbyte subroutine	; transmit byte given in A
 txbyte

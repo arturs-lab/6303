@@ -102,39 +102,45 @@ sn76play subroutine
 	staa sn76chccn
 
 ; process all notes 25us
-	IF SN76DBG > 0
+.1
+	IF SN76PLS > 0
 	staa CPLDh
-.1	ldaa #$03
+	ldaa #$03
 	eora CPLDh
 	staa CPLDh
-	ldaa #"1"
-	ELSE
-.1
 	ENDIF
+	IF SN76DBG > 0
+	ldaa #"1"
+	ENDIF
+
 	ldx #sn76chab		; 60us
 	jsr sn76procnote
 
-	IF SN76DBG > 0
+	IF SN76PLS > 0
 	ldaa #$06
 	eora CPLDh
 	staa CPLDh
+	ENDIF
+	IF SN76DBG > 0
 	ldaa #"2"
 	ENDIF
 
 	ldx #sn76chbb		; 80us
 	jsr sn76procnote
 
-	IF SN76DBG > 0
+	IF SN76PLS > 0
 	ldaa #$0c
 	eora CPLDh
 	staa CPLDh
+	ENDIF
+	IF SN76DBG > 0
 	ldaa #"3"
 	ENDIF
 
 	ldx #sn76chcb		; 60us
 	jsr sn76procnote
 
-	IF SN76DBG > 0
+	IF SN76PLS > 0
 	ldaa #$18
 	eora CPLDh
 	staa CPLDh
@@ -143,6 +149,12 @@ sn76play subroutine
 	jsr setsnregs	; play note 900us
 
 	IF SN76DBG > 0
+	ldaa #$0d
+	jsr txbyte
+	ldaa #$0a
+	jsr txbyte
+	ENDIF
+	IF SN76PLS > 0
 	ldaa #$30
 	eora CPLDh
 	staa CPLDh
@@ -152,7 +164,7 @@ sn76play subroutine
 .5	dex
 	bne .5
 
-	IF SN76DBG > 0
+	IF SN76PLS > 0
 	ldaa #$20
 	eora CPLDh
 	staa CPLDh
@@ -178,6 +190,13 @@ sn76procnote subroutine
 .8	ldab #14	; equalize duration of new note and same note tick
 .7	decb
 	bne .7
+	IF SN76DBG > 0
+	ldaa #"-"
+	jsr txbyte
+	jsr txbyte
+	ldaa #" "
+	jsr txbyte
+	ENDIF
 	rts
 
 .1	ldx sn76cha - sn76chab,x	; load pointer to current note
@@ -258,21 +277,42 @@ loop	cmpb #254				; loop?
 	std sn76cha - sn76chab,x	; point to first note
 	bra .1				; start over, read the note
 
-procnote	ldx #notes	; point to note table
+procnote	ldx #sn76lkp	; point to note table
 	decb
 	aslb
+	IF SN76DBG > 0
+	pshb
+	ENDIF
 	abx		; add note offset
 	ldd 0,x				; get note value
 	ldx sn76curchan			; get current channel pointer
 	std sn76ch1f-sn76chab,x		; store note value in appropriate channel's memory
-	bra .3
+	IF SN76DBG > 0
+	pulb
+	ldx #sn76nts
+	abx		; add note offset
+	ldaa 0,x
+	jsr txbyte
+	ldaa 1,x
+	jsr txbyte
+	ldaa #" "
+	jsr txbyte
+	ENDIF
+	rts
 
 pause	ldaa #4	; equalize duration of note and pause processing
 .2	deca
 	bne .2
 	ldaa #$0f
 	staa sn76ch1a - sn76chab,x	; store note attenuation
-.3	rts
+	IF SN76DBG > 0
+	ldaa #"P"
+	jsr txbyte
+	jsr txbyte
+	ldaa #" "
+	jsr txbyte
+	ENDIF
+	rts
 
 noise	ldaa sn76ch1a - sn76chab,x	; get note attenuation
 	staa sn76chna - sn76chcb,x	; store it in noise attenuation
@@ -283,10 +323,17 @@ noise	ldaa sn76ch1a - sn76chab,x	; get note attenuation
 	clra
 	ldx sn76curchan			; get current channel pointer
 	std sn76ch1f-sn76chab,x		; store note value in appropriate channel's memory
-	bra .3
+	IF SN76DBG > 0
+	ldaa #"N"
+	jsr txbyte
+	jsr txbyte
+	ldaa #" "
+	jsr txbyte
+	ENDIF
+	rts
 	
 endsong	pulx		; remove extra return address from stack
-	IF SN76DBG > 1
+	IF SN76PLS > 0
 	ldaa #0
 	staa CPLDh
 	ENDIF
