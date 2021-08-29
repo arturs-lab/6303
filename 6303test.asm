@@ -46,22 +46,37 @@ RDRF	equ $80	; Receive Data Register Full
 inram	equ $80	; internal ram
 exram	equ $4000	; external RAM start
 extop	equ $c000	; external RAM end
-hd6321	equ $10f8 ; HD6321 PIA
-PRA	equ hd6321
-PRB	equ hd6321 + 2
-DDRA	equ hd6321
-DDRB	equ hd6321 + 2
-CRA	equ hd6321 + 1
-CRB	equ hd6321 + 3
+;hd6321	equ $10f8 ; HD6321 PIA
+;PRA	equ hd6321
+;PRB	equ hd6321 + 2
+;DDRA	equ hd6321
+;DDRB	equ hd6321 + 2
+;CRA	equ hd6321 + 1
+;CRB	equ hd6321 + 3
 
-CPLDl	equ $10fc	; base address of CPLDl
-CPLDh	equ $10fd	; base address of CPLDh
-LED	equ $10fe	; LED address
-OUTREG	equ	$10ff ; special output register
+AYSEL		equ $11e0	; select AY chip, $11e0-$11e1
+SNDSEL	equ $11e2	; speccy sound IF $11e2
+MIC		equ $02	; microphone sound input (tape) is on D0, sound output register is on D1
+HD21IRQ	equ $11e3	; HD6321 IRQ lines
+; HD6321 chip $11e4 - 11e7
+hd6321	equ $11e4	; HD6321 PIA
+PRA		equ hd6321
+PRB		equ hd6321 + 2
+DDRA		equ hd6321
+DDRB		equ hd6321 + 2
+CRA		equ hd6321 + 1
+CRB		equ hd6321 + 3
+EXTSEL	equ $11e8	; external select connector $11e8 - 11ef
+RAMB4		equ $11f8	; low ram ($4000-$7FFF) bank mapping
+RAMB8		equ $11f9	; high  ram ($8000-$BFFF) bank mapping
+RAMBc		equ $11fa	; ram in ROM area($C000-$FFFF) bank mapping
+ROMB		equ $11fb	; bit 0: ROM bank, bit 1: select ROM or RAMBc
+CPLDl		equ $11fc	; CPLD extra port low
+CPLDh		equ $11fd	; CPLD extra port high
+LED		equ $11fe	; LED address
+OUTREG	equ $11ff	; CPLD special reg
 tp1	equ $55	; test pattern 1
 tp2	equ $aa	; test pattern 2
-
-MIC	equ 8		; mic bit of tape output
 
 ratmp	equ $80	; temp storage for reg A
 rbtmp	equ $81	; temp storage for reg B
@@ -81,7 +96,8 @@ delayl equ $10	; length of delay before restart
 ; followed by address to be saved to
 ; followed by length of data
 ; https://faqwiki.zxnet.co.uk/wiki/Spectrum_tape_interface#Header_block
-tsavebuf	equ exram			; buffer for header, file type
+tsavecnt	equ exram			; length of data
+tsavebuf	equ tsavecnt + 2		; buffer for header, file type
 tsavename	equ tsavebuf + 1		; file name
 tsavelen	equ tsavename + 10	; count of bytes to be saved to tape
 tsavep1	equ tsavelen + 2		; param 1
@@ -90,7 +106,8 @@ tsavetim	equ tsavep2 + 2		; leader timers
 
 
 	seg
-	org $e000
+;	org $e000
+	org $c000
 
 main subroutine
 	
@@ -166,6 +183,9 @@ l5	ldaa #$02	; 3rd phase
 	lds #$00FF	; Locate stack at top of internal RAM
 	ldx #ok	; point to text "OK\r\n"
 	jsr txstring	; call subroutine to send it out serial port
+
+	jmp ramtest		; jump to testing RAM
+
 ; we can also set up interrupts!
 	clra
 	clrb
@@ -216,8 +236,8 @@ ldel	ldx #delays
 
 .12	;ldaa #1
 	;jsr delay1
-	jsr tsaveh
-	bra .12
+
+;	bra .12
 
 	jmp ramtest		; jump to testing RAM
 
@@ -333,6 +353,18 @@ ramtest
 	ldx #extram
 	jsr txstring
 
+; display banks to be tested
+	ldx #bnk1
+	jsr txstring
+	ldaa RAMB4
+	jsr txhex
+	jsr txcrlf
+	ldx #bnk2
+	jsr txstring
+	ldaa RAMB8
+	jsr txhex
+	jsr txcrlf
+
 	ldaa #tp1		; load test pattern
 .1	psha
 	jsr txhexbyte	; display it
@@ -379,12 +411,41 @@ ramtest
 	jsr txstring
 ;	jsr txcrlf
 
+; select next ram bank
+	ldaa RAMB4
+	adda #$02
+	staa RAMB4
+	ldaa RAMB8
+	adda #$02
+	staa RAMB8
+
 ;	jsr io		; call subroutine to generate some pulses on port P1
 
 	jsr showcounters
 	jsr txcrlf
 
-;	jsr test6321
+; tape save routine
+	ldx #tapsv		; display message
+	jsr txstring
+	ldx #17		; header length 17 bytes
+	stx tsavecnt
+	ldx #tsavebuf	; header address
+	jsr tsaveh		; save header
+
+	; test AY chip. First initi
+	ldx #sayinit
+	jsr txstring
+	jsr ay38910
+	ldaa #$08
+	jsr delay1
+	ldx #sayampl
+	jsr txstring
+	jsr ampltest
+	ldx #sayenv
+	jsr txstring
+	jsr envtest
+
+	jsr test6321
 
 	jmp ldel
 ;	jmp l0		; rinse and repeat
@@ -451,11 +512,23 @@ delrst
 	ldx $fffe			; or jump to reset vector
 	jmp 0,x
 
+; connect port A to port B and CA1 to CB2 and CA2 to CB1
+
 test6321 subroutine
 test6321
 	jsr conf21Aout	; configure port A as output
 	ldx #conf21b	; send message about testing port
 	jsr txstring
+
+; temporary test. just display port b forever
+;.99	ldaa PRB		; read from PRB
+;	jsr txhexbyte	; display tested value
+;	ldaa #$0d
+;	jsr txbyte
+;	ldaa #$2
+;	jsr delay1
+;	bra .99
+
 	ldab #$00
 	stab exram
 .1	stab PRA		; write to PRA
@@ -484,7 +557,7 @@ test6321
 	cmpb PRB		; compare reg B with value read from CRB
 	beq .3
 	jsr cmpAfail
-.3	ldaa #$2
+.3	ldaa #$1
 	jsr delay1
 	incb
 	bne .1		; continue loop for all 255 values
@@ -533,7 +606,7 @@ test6321
 	cmpb PRA		; compare reg B with value read from CRA
 	beq .4
 	jsr cmpBfail
-.4	ldaa #$2
+.4	ldaa #$1
 	jsr delay1
 	incb
 	bne .2		; continue loop for all 255 values
@@ -571,12 +644,12 @@ cmpfailmsg
 conf21Aout
 	ldx #conf21a
 	jsr txstring
-	ldaa #$30		; select DDRB,CB2 output
+	ldaa #$30		; select DDRB,CA2, CB2 outputs
 	staa CRB		; write that to CRB
 	staa CRA		; write that to CRA
-	ldaa #$00		; all pins inputs
+	ldaa #$00		; all PB pins inputs
 	staa DDRB		; DDRB
-	ldaa #$ff		; all pins outputs
+	ldaa #$ff		; all PA pins outputs
 	staa DDRA		; DDRA
 	ldaa #$34		; select Peripheral Reg access, Cx2 outputs
 	staa CRA		; write that to CRA
@@ -617,72 +690,94 @@ tsavesub subroutine
 
 tsaveh
 	pshx
-;	ldx #$3f42	; 5 seconds
-	ldx #8063	; 5 seconds
+	ldx #8063	; 5 seconds header
+;	ldx #4	; 2 pulses for testing
 	bra tsave
 
 tsaved
 	pshx
-;	ldx #$194e	; 2 seconds
-	ldx #3233	; 2 seconds
+	ldx #3223	; 2 seconds data
 
 tsave	sei		; disable interrupts
 	ldaa #MIC	; set mic pin
-	tab		; also set B reg
+	ldab #8		; also set B reg
+	bra .0
 .1	decb
 	nop
 	nop
 	bne .1
-	staa p1	; LED
+.0	staa SNDSEL	; tape output
 	eora #MIC	; invert mic bit
-	ldab #$bf	; timing constant for correct frequency 820Hz. Speccy 2168 T-states
+	ldab #$bb	; timing constant for correct frequency 807Hz. Speccy 3.5MHz / 2168 T-states / 2 pulses per cycle. 619us each pulse
 	dex
 	bne .1	; header length counter
 
-	ldab #$56	; short pulse - 667T
+	ldab #83	; short pulse - 3.5 MHz / 667T = 190us
 .2	decb
 	bne .2
-	staa p1	; LED
+	staa SNDSEL	; tape output
 	eora #MIC	; invert mic bit
 
-	ldab #$60	; long pulse - 735T
+	ldab #94	; long pulse - 3.5 MHz / 735T = 210us
 .3	decb
 	bne .3
-	staa p1	; LED
+	staa SNDSEL	; tape output
 	eora #MIC	; invert mic bit
 
-	pulx		; get address of data
+.10	pulx		; get address of data
 
 .9	ldaa 0,X	; data to be sent
 	ldab #8	; bit counter
 
-.8	pshb
-	ldab #$70	; 0 - 855T
+.8	pshb		; save bit counter
+	ldab #$70	; 0 - 3.5 MHz / 855T = 244us
 	lsra
 	bcc .4
-	ldab #$e0	; 1 - 1710T
+	ldab #$e0	; 1 - 3.5 MHz / 1710T = 489us
 .4	psha
 .5	decb
 	bne .5
-	ldaa #MIC
-	eora p1	; LED	; invert mic bit
+	ldaa SNDSEL
+	eora #MIC	; invert mic bit
+	staa SNDSEL	; tape output
 	pula
-	ldab #$70	; 0 - 855T
+	ldab #$70	; 0 - 3.5 MHz / 855T = 244us
 	lsra
 	bcc .6
-	ldab #$e0	; 1 - 1710T
+	ldab #$e0	; 1 - 3.5 MHz / 1710T = 489us
 .6	psha
 .7	decb
 	bne .7
-	ldaa #MIC
-	eora p1	; LED	; invert mic bit
-	pula
-	pulb
+	ldaa SNDSEL
+	eora #MIC	; invert mic bit
+	staa SNDSEL	; tape output
+	pula		; get data byte
+	pulb		; get bit counter
 	decb
-	bne .8
+	bne .8	; all bit sent?
 
-	inx
+	inx		; point to next byte
+	pshx
 
+
+	ldx tsavecnt	; get data count
+	dex			; decrement
+	stx tsavecnt	; save for later
+	beq .11		; all data sent?
+
+	pulx		; get address of data
+
+	ldaa 0,X	; data to be sent
+	ldab #8	; bit counter
+
+	pshb
+	ldab #$70	; 0 - 3.5 MHz / 855T = 244us
+	lsra
+	bcc .12
+	ldab #$e0	; 1 - 3.5 MHz / 1710T = 489us
+.12	bra .4
+
+.11	pulx
 	cli
 	rts
 
@@ -692,6 +787,154 @@ tsavein
 	jsr tsaveh
 	pulx
 	rts
+
+aytest subroutine
+
+ay38910
+	ldx #ayinit
+.2	ldaa	0,x
+	staa AYSEL+1
+	inx
+	ldaa	0,x
+	staa AYSEL
+	inx
+	cpx #ayend
+	bne .2
+	rts
+
+ayinit
+	dc $00,$40	; A fine
+	dc $00,$40	; A coarse
+	dc $00,$40	; B fine
+	dc $03,$01	; B coarse
+	dc $04,$20	; C fine
+	dc $05,$01	; C coarse (4b)
+	dc $06,$07	; noise (5b)
+	dc $07,$07<<3	; mixer
+	dc $08,$10	; A level
+	dc $09,$10	; B level
+	dc $0a,$10	; C level
+	dc $0b,$00	; envelope F fine
+	dc $0c,$01	; envelope F coarse
+	dc $0d,$0e	; envelope shape
+ayend equ .
+
+; test amplitude
+; first decrease then increase
+; repeat 3 times
+
+ampltest
+	ldaa #$08		; channel A level
+	staa AYSEL+1
+	ldaa #$00		; set to off
+	staa AYSEL
+	ldaa #$0a		; channel C level
+	staa AYSEL+1
+	ldaa #$00		; set to off
+	staa AYSEL
+	ldaa #$09		; channel B level
+	staa AYSEL+1
+	ldx #sayamplval
+	jsr txstring
+	ldab #$04
+.7	ldaa #$10
+.4	deca			; first decrement level
+	staa AYSEL
+	psha
+	jsr txhex
+	ldaa #$0d
+	jsr txbyte
+	pula
+	ldx #$ffff		; delay loop
+.3	dex
+	bne .3
+	cmpa #$00
+	bne .4		; next level if not 0 yet
+.6	inca			; otherwise start incrementing
+	staa AYSEL
+	psha
+	jsr txhex
+	ldaa #$0d
+	jsr txbyte
+	pula
+	ldx #$ffff		; delay loop
+.5	dex
+	bne .5
+	cmpa #$0f
+	bne .6		; done when reached $0f
+	decb
+	bne .7		; do it 4 times
+	jsr txcrlf
+	ldaa #$09		; channel B level
+	staa AYSEL+1
+	ldaa #$00		; set to off
+	staa AYSEL
+	rts
+
+; test envelope
+; set each envelope in turn and wait
+envtest
+	ldaa #$08		; channel A level
+	staa AYSEL+1
+	ldaa #$00		; set to off
+	staa AYSEL
+	ldaa #$09		; channel B level
+	staa AYSEL+1
+	ldaa #$1f		; set to 'envelope controlled'
+	staa AYSEL
+	ldaa #$0a		; channel C level
+	staa AYSEL+1
+	ldaa #$00		; set to off
+	staa AYSEL
+	ldaa #$0d		; select envelope register
+	staa AYSEL+1
+	ldx #sayenvnum
+	jsr txstring
+	ldab #$40
+.12	ldaa #$00		; start with envelope #0
+	staa AYSEL
+	jsr txhex
+	ldaa #$0d
+	jsr txbyte
+	ldx #$ffff
+.8	dex
+	bne .8
+	decb
+	bne .12
+	ldab #$40
+.13	ldaa #$04		; then envelope #$04
+	staa AYSEL
+	jsr txhex
+	ldaa #$0d
+	jsr txbyte
+	ldx #$ffff
+.9	dex
+	bne .9
+	decb
+	bne .13
+	ldaa #$08		; then envelope #$08 - $0f
+.11	staa AYSEL
+	psha
+	jsr txhex
+	ldaa #$0d
+	jsr txbyte
+	pula
+	ldab #$40
+.14	ldx #$ffff
+.10	dex
+	bne .10
+	decb
+	bne .14
+	inca
+	cmpa #$10
+	bne .11
+	jsr txcrlf
+	ldaa #$09		; channel B level
+	staa AYSEL+1
+	ldaa #$00		; set to off
+	staa AYSEL
+	rts
+
 
 showcounters subroutine
 showcounters
@@ -824,12 +1067,20 @@ timer		dc "Timer: ",$0
 counter	dc "Counter: ",$0
 delays	dc "delay ",$0d,$0a,$0
 intram	dc $0d,$0a,"Internal RAM ",$0
-extram	dc "External RAM ",$0
+extram	dc "External RAM ",$0d,$0a,$0
 ok		dc "OK",$0d,$0a,$0
 fail		dc "FAIL",$0d,$0a,$0
 ataddr	dc " at addr ",$0
 restart 	dc "RESTART",$0d,$0a,$0d,$0a,$0
 crlf		dc $0d,$0a,$0
+tapsv		dc "Tape save signal on MIC",$0d,$0a,$0d,$0a,$0
+bnk1		dc "RAM bank 4000-7fff: ",$0
+bnk2		dc "RAM bank 8000-bfff: ",$0
+sayinit	dc "Initializing AY chip",$0d,$0a,$0
+sayampl	dc "Testing AY amplitude",$0d,$0a,$0
+sayamplval	dc "amplitude: ",$0d,$0a,$0
+sayenv	dc "Testing AY envelopes",$0d,$0a,$0
+sayenvnum	dc "envelope: ",$0d,$0a,$0
 
 	org $ff80
 
