@@ -4810,7 +4810,7 @@ setsnregx	ldab #$80
 	aba
 	jsr setsn		; set attenuation register
 	tba			; save B for later
-	ldab #$08		; add 8 to X
+	ldab #sn76chbb - sn76chab	; point to next channel
 	abx
 	tab			; restore B
 	addb #$10		; point to next sn76 register
@@ -4878,13 +4878,13 @@ sn76play subroutine
 	staa sn76chna	; noise attenuation
 	ldx song
 	stx sn76tmpo	; playback speed
-	ldx #song+6		; beginning of song channel A
+	ldx #song+7		; beginning of song channel A
 	stx sn76chab
 	stx sn76cha
-	ldx song+4		; beginning of song channel B
+	ldx song+5		; beginning of song channel B
 	stx sn76chbb
 	stx sn76chb
-	ldx song+2		; beginning of song channel C
+	ldx song+3		; beginning of song channel C
 	stx sn76chcb
 	stx sn76chc
 	clra
@@ -4947,7 +4947,7 @@ sn76procnote subroutine
 	beq .1				; still playing current note?
 	decb					; yes, decrement note time
 	stab sn76chacn - sn76chab,x	; store note duration counter
-	andb #$03
+	andb sn76chaad - sn76chab,x	; and with decay tempo
 	bne .8
 	ldab sn76ch1a - sn76chab,x	; load note attenuation
 	cmpb #$0f
@@ -4967,41 +4967,45 @@ sn76procnote subroutine
 	ldd 0,x				; load note and duration
 
 	std sn76temp
+	ldaa 2,x
+	staa sn76temp+2
 	ldx #sn76temp
 	jsr txhexword
+	ldaa sn76temp+2
+	jsr txhexbyte
 	ldaa #$0d
 	jsr txbyte
 	ldaa #$0a
 	jsr txbyte
-	ldd sn76temp
-	pulx
-	
-	psha					; save note for later
-	pshb					; save attenuation for later
-	ldaa #1				; initialize duration shifter
-	andb #$0f				; extract duration from attenuation/duration parameter
-	beq .5				; if duration = 0 -> shortest tone
-.6	asla					; otherwise shift A the number of bits in B to left
-	decb
-	bne .6
-.5	ldx sn76curchan			; load pointer to beginnign of cur channel
+
+	pulx					; load pointer to current note
+	ldd 1,x				; get note duration and attenuation
+	ldx sn76curchan			; load pointer to beginnign of cur channel
+	deca					; adjust duration
 	staa sn76chacn - sn76chab,x	; store note duration counter
-	pula					; extract attenuation
-	lsra
-	lsra
-	lsra
-	lsra
+	tba					; get attenuation
 	anda #$0f
 	staa sn76ch1a - sn76chab,x	; store note attenuation
+
+	andb #$f0				; get decay tempo
+	bne dtrol
+	ldab song + 2			; load default attenuation
+	bra dtsv
+dtrol	lsrb
+	lsrb
+	lsrb
+	lsrb
+dtsv	stab sn76chaad - sn76chab,x	; store note attenuation
 
 	ldd sn76cha - sn76chab,x	; load pointer to current note
 	xgdx
 	inx		; point to next note
 	inx
+	inx
 	xgdx
 	std sn76cha - sn76chab,x	; store pointer to next note
 
-	pulb					; get current note
+	ldab sn76temp
 	tba					; just to update flags
 	beq pause				; pause note
 	cmpb #74
@@ -5074,27 +5078,30 @@ txdbg1
 sn76chab	equ RAMLO + 0	; song begin ch 1
 sn76cha	equ RAMLO + 2	; current note pointer ch 1
 sn76chacn	equ RAMLO + 4	; current note time ch 1
-sn76ch1f	equ RAMLO + 5	; sn76 registers - chan 1 frequency
-sn76ch1a	equ RAMLO + 7	; sn76 registers - chan 1 attenuation
+sn76chaad	equ RAMLO + 5	; current note decay tempo
+sn76ch1f	equ RAMLO + 6	; sn76 registers - chan 1 frequency
+sn76ch1a	equ RAMLO + 8	; sn76 registers - chan 1 attenuation
 
-sn76chbb	equ RAMLO + 8	; song begin ch 2
-sn76chb	equ RAMLO + 10	; current note pointer ch 2
-sn76chbcn	equ RAMLO + 12	; current note time ch 2
-sn76ch2f	equ RAMLO + 13	; sn76 registers - chan 2 frequency
-sn76ch2a	equ RAMLO + 15	; sn76 registers - chan 2 attenuation
+sn76chbb	equ RAMLO + 9	; song begin ch 2
+sn76chb	equ RAMLO + 11	; current note pointer ch 2
+sn76chbcn	equ RAMLO + 13	; current note time ch 2
+sn76chbad	equ RAMLO + 14	; current note decay tempo
+sn76ch2f	equ RAMLO + 15	; sn76 registers - chan 2 frequency
+sn76ch2a	equ RAMLO + 17	; sn76 registers - chan 2 attenuation
 
-sn76chcb	equ RAMLO + 16	; song begin ch 3
-sn76chc	equ RAMLO + 18	; current note pointer ch 3
-sn76chccn	equ RAMLO + 20	; current note time ch 3
-sn76ch3f	equ RAMLO + 21	; sn76 registers - chan 3 frequency
-sn76ch3a	equ RAMLO + 23	; sn76 registers - chan 3 attenuation
+sn76chcb	equ RAMLO + 18	; song begin ch 3
+sn76chc	equ RAMLO + 20	; current note pointer ch 3
+sn76chccn	equ RAMLO + 22	; current note time ch 3
+sn76chcad	equ RAMLO + 23	; current note decay tempo
+sn76ch3f	equ RAMLO + 24	; sn76 registers - chan 3 frequency
+sn76ch3a	equ RAMLO + 26	; sn76 registers - chan 3 attenuation
 
-sn76chns	equ RAMLO + 24	; sn76 registers - noise source
-sn76chna	equ RAMLO + 25	; sn76 registers - noise attenuation
+sn76chns	equ RAMLO + 27	; sn76 registers - noise source
+sn76chna	equ RAMLO + 28	; sn76 registers - noise attenuation
 
-sn76curchan	equ RAMLO + 26	; stores pointer to current channel
-sn76tmpo	equ RAMLO + 28	; song tempo
-sn76temp	equ RAMLO + 30	; temporary reg for testing
+sn76curchan	equ RAMLO + 29	; stores pointer to current channel
+sn76tmpo	equ RAMLO + 31	; song tempo
+sn76temp	equ RAMLO + 33	; temporary reg for testing
 
 dlypin	equ $10	; delay between control pin changes
 dlybyte	equ $04	; delay between bytes
