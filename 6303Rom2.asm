@@ -85,6 +85,7 @@ DDRB		equ hd6321 + 2
 CRA		equ hd6321 + 1
 CRB		equ hd6321 + 3
 
+SN76SEL	equ $10	; bit of SPECIAL reg that enables SN76 chip
 AYSEL		equ $11d0	; select AY chip, $11d0-$11d1
 SNDSEL	equ $11d2	; speccy sound IF $11d2
 MIC		equ $02	; microphone sound input (tape) is on D0,
@@ -100,7 +101,7 @@ ROMB		equ $11fb	; bit 0: ROM bank 0 or 1
 CPLDl		equ $11fc	; CPLD extra port low
 CPLDh		equ $11fd	; CPLD extra port high
 LED		equ $11fe	; LED address
-OUTREG	equ $11ff	; CPLD special reg
+SPREG		equ $11ff	; CPLD special reg
 RAMLO		equ $4000	; beginning of RAM
 RAMB2		equ $8000	; beginning of second bank of RAM
 RAMHI		equ $c000	; end of RAM + 1
@@ -274,6 +275,10 @@ tsavetim	equ tsavep2 + 2		; leader timers
 
 RESET	  subroutine
 	SEI            ;Disable interrupts
+
+	lds #$00ff		; temporary stack location
+	jsr sn76off		; initialize sound chip so it does not make noise
+
 	LDX #RAMLO		; fill RAM with a known pattern
 	LDAA	#$AA
 .1	STAA 0,X
@@ -289,23 +294,25 @@ RESET	  subroutine
         LDAA  #$01    
         STAA  FLAGS_A  ; Echo Flag ON 
 
-	LDX   #RAMLO + $1000	; initialize 'g' jump address to RAMLO + $1000
+	LDX   #GOADDR	; initialize 'g' jump address to GOADDR = RAMLO + $1000
 	STX   GOPTR
 ;;
 ;        LDAA  #$00    ; this was used for testing of delay timing
-;        staa OUTREG
+;        staa CPLDh
 ;        LDAA  #$01    
-;        staa OUTREG
+;        staa CPLDh
+;        LDAA  #$00    
 ;;
 	LDX   #DEL20MS    ; delay approx 20ms
 DELBOOT DEX
         BNE   DELBOOT       
 ;;
-;        LDAA  #$00    
-;        staa OUTREG
+;        staa CPLDh
 ;;        
         LDAA  #$F7
         STAA  REG_DDRP2       ;Set Port2 to OUTPUT (except P2.3=Input for RXD)
+
+;; this does not exist on my CPU
 ;        LDAA	#$FF        
 ;        STAA  REG_DDRP5       ;P5 DDR  = OUTPUT
 ;        STAA  CPLDl       ;P5 OUTPUTS ALL HIGH
@@ -319,16 +326,19 @@ DELBOOT DEX
         STAA  BLINK_CT
         JSR   SERINIT   ;INIT INTERNAL UART, INTERNAL CLOCK, 115200 BAUD
         JSR   IRQINIT   ;Populate IRQ Jump Table
+;	cli	; enable interrupts
 
         JSR   FLASHP6   ;Blink LEDs 5x
 
 ;        LDAA  #$02    ; USED FOR TIMING TESTING
-;        staa OUTREG
+;        staa CPLDh
         LDAA   #25     ;Duration=1/4sec.
         LDAB   #$19    ;Frequency ($10 approx 3KHZ)
         JSR    BEEP    ;Call BEEP
 ;        LDAA  #$00    
-;        staa OUTREG
+;        staa CPLDh
+	ldaa #$01	; initialize LED blinky
+	staa LED
         
 MONITOR LDX   #BOOTMSG
         JSR   PUTS      ;Startup Message
@@ -344,14 +354,18 @@ BLINK1  DEC   BLINK_CT  ;Decrement the blink counter (250ms based on delay above
         BNE   GETCHR    ; NO = look for input & continue
         LDAA  #250      ; YES = Reset the blink counter
         STAA  BLINK_CT
-        LDAA  LED
-        CMPA  #$01      ;Was previous output = LSB only set?
-        BEQ   BLINK2    ;Yes = Set $02 output
-        LDAA  #$01      ; No = Set $01 output 
-        STAA  LED ;P6 PORT
-        JMP   GETCHR    ; continue...
-BLINK2  LDAA  #$02      ; Set $70 output
-        STAA  LED ;P6 PORT
+
+        LDAA  #$03	; invert 2 LSB LED bits
+        EORA  LED
+        STAA  LED
+;        LDAA  LED ;P6 PORT
+;        CMPA  #$01      ;Was previous output = LSB only set?
+;        BEQ   BLINK2    ;Yes = Set $02 output
+;        LDAA  #$01      ; No = Set $01 output 
+;        STAA  LED ;P6 PORT
+;        JMP   GETCHR    ; continue...
+;BLINK2  LDAA  #$02      ; Set $70 output
+;        STAA  LED ;P6 PORT
 
 GETCHR  JSR   INCHRIF   ;Get input if available
         BCS	  NOCHR     ; No Data Ready then loop again
@@ -728,6 +742,10 @@ IRQINIT subroutine
         STX  IRQCMI+1    ;$95          ; Timer 2 Counter Match
         STX  IRQIRQ2+1   ;$98          ; IRQ2
         STX  IRQSIO+1    ;$9B          ; RDRF+ORFE+TDRE+PER
+
+; set my special IRQ handler
+	  ldx #IRQSR
+        STX  IRQIRQ1+1   ;$89          ; IRQ1
         RTS
         
 ;;************************************************************************
@@ -2234,6 +2252,15 @@ TRAP01  subroutine
         JMP   TRAP01
 MONEND   equ   .
 
+;; my IRQ service routine
+IRQSR sei
+	staa  IRQFLAG1
+	ldaa #$08
+	eora LED
+	staa LED
+	ldaa IRQFLAG1
+	cli
+	rti
 
 ;;************************************************************************
 ;;************************************************************************
@@ -4495,119 +4522,337 @@ sayamplval	dc " amplitude: ",$0d,$0a,$0
 sayenv	dc "Testing AY envelopes",$0d,$0a,$0
 sayenvnum	dc " envelope: ",$0d,$0a,$0
 
-sn76489	subroutine
-sn76489	
-	ldaa #$ff
-	staa CPLDh
+; sn76489 PSG test routines
+; f = 1843230/(32*n)
+; n = 1843230/(32*f)
+; A4 = 131 $83
 
-	ldaa #$ff	; noise attenuation
+sn76init subroutine
+sn76init	jsr sn76off
+
+	ldaa #$0f
+	staa sn76ch1a	; channel 1 attenuation
+	staa sn76ch2a	; channel 2 attenuation
+	staa sn76ch3a	; channel 0 attenuation
+	staa sn76chna	; noise attenuation
+
+	ldx #$0083	; A4
+	stx sn76ch1f
+	ldx #$006e	; C5
+	stx sn76ch2f
+	ldx #$0057	; E5
+	stx sn76ch3f
+	ldx #$0004
+	stx sn76chna
+
+	rts
+
+sn76off	ldaa #$ff
 	jsr setsn
-
-	ldaa #$bf	; tone 3 attenuation
+	ldaa #$df
 	jsr setsn
-
-	ldaa #$df	; tone 2 attenuation
+	ldaa #$bf
 	jsr setsn
-
-	ldaa #$90	; tone 1 attenuation
-	jsr setsn
-
-.2	ldx #t1
-	jsr txhexword
-	ldaa #$0d
-	jsr txbyte
-	ldx #t1
-	ldab #$80	; channel 0
-	jsr setsnf
-
-	ldaa #x3
-	jsr dly1
-
-	ldd t1	; have to use D because can't shift X
-	asld
-	std t1
-	xgdx		; have to use X because can't compare D
-	cpx #$0400
-	bne .2
-
-	ldx #$0001
-	stx t1
-
-.3	ldx #t1
-	jsr txhexword
-	ldaa #$0d
-	jsr txbyte
-	ldx #t1
-	ldab #$80	; channel 0
-	jsr setsnf
-
-	ldaa #x3
-	jsr dly1
-
-	ldx t1
-	inx
-	stx t1
-	cpx #$0400
-	bne .3
-
-	ldx #$0001
-	stx t1
-
-	ldaa #$9f	; tone 1 attenuation
-	jsr setsn
-
-	ldaa #$df	; tone 2 attenuation
-	jsr setsn
-
-	ldaa #$bf	; tone 3 attenuation
+	ldaa #$9f
 	jsr setsn
 
 	rts
 
-; set two byte frequency
-setsnf
-	ldaa 1,X	; put low byte in A
-	anda #$0f
-	oraa #$80	; tone 1 pitch byte 1
+sn76489t subroutine
+sn76489t	jsr sn76init
+
+	ldaa #$90	; channel 0 attenuation
 	jsr setsn
 
+	ldx #sn76ch0	
+	jsr txstring
+	ldab #$80	; channel 0
+	jsr sn74frqtest
+
+	ldaa #$9f	; channel 0 attenuation
+	jsr setsn
+
+	ldaa #$b0	; channel 1 attenuation
+	jsr setsn
+
+	ldx #sn76ch1	
+	jsr txstring
+	ldab #$a0	; channel 1
+	jsr sn74frqtest
+
+	ldaa #$bf	; channel 1 attenuation
+	jsr setsn
+
+	ldaa #$d0	; channel 2 attenuation
+	jsr setsn
+
+	ldx #sn76ch2	
+	jsr txstring
+	ldab #$c0	; channel 2
+	jsr sn74frqtest
+
+	jsr sn74scan	; full frequency sweep
+
+	ldaa #$df	; channel 2 attenuation
+	jsr setsn
+
+; play a chord
+	ldx #sn76vol	
+	jsr txstring
+	ldaa #$80		; channel 0
+	ldx #sn76ch1f	; point to tone value
+	jsr setsnf		; set register
+	ldaa #$a0		; channel 1
+	ldx #sn76ch2f	; point to tone value
+	jsr setsnf		; set register
+	ldaa #$c0		; channel 2
+	ldx #sn76ch3f	; point to tone value
+	jsr setsnf		; set register
+
+	ldab #$0e		; initial attenuation
+.1	tba
+	jsr txhexbyte
+	ldaa #$0d
+	jsr txbyte
+	tba
+	oraa #$90	; channel 0
+	jsr setsn
+	tba
+	oraa #$b0	; channel 1
+	jsr setsn
+	tba
+	oraa #$d0	; channel 2
+	jsr setsn
+
+	ldaa #$04
+	jsr dly1
+
+	decb
+	bne .1
+
+.3	tba
+	jsr txhexbyte
+	ldaa #$0d
+	jsr txbyte
+	tba
+	oraa #$90	; channel 0
+	jsr setsn
+	tba
+	oraa #$b0	; channel 1
+	jsr setsn
+	tba
+	oraa #$d0	; channel 2
+	jsr setsn
+
+	ldaa #$04
+	jsr dly1
+
+	incb
+	cmpb #$10
+	bne .3
+
+; noise
+sn76noise subroutine
+	ldx #sn76ch3	
+	jsr txstring
+	ldaa #$f0	; noise channel attenuation
+	jsr setsn
+
+	ldaa #$00	; noise channel N/512
+	staa sn76chns
+
+.1	ldaa sn76chns
+	jsr txhex
+	ldaa #$0d
+	jsr txbyte
+	ldaa #$e0	; noise channel
+	adda sn76chns
+	jsr setsn
+	ldaa #$10
+	jsr dly1
+
+	inc sn76chns
+
+	ldaa #$04
+	cmpa sn76chns
+	bne .1
+
+	ldaa #$0a
+	jsr txbyte
+	ldab #$c0	; channel 2
+	jsr sn74scan	; full frequency sweep
+	ldaa #$0a
+	jsr txbyte
+
+.2	ldaa sn76chns
+	jsr txhex
+	ldaa #$0d
+	jsr txbyte
+	ldaa #$e0	; noise channel
+	adda sn76chns
+	jsr setsn
+	ldaa #$10
+	jsr dly1
+
+	inc sn76chns
+
+	ldaa #$08
+	cmpa sn76chns
+	bne .2
+
+	ldaa #$0a
+	jsr txbyte
+	ldab #$c0	; channel 2
+	jsr sn74scan	; full frequency sweep
+
+	ldaa #$ff	; noise channel attenuation
+	jsr setsn
+
+	rts
+
+sn74frqtest subroutine on entry B contains channel number
+.2	ldx #sn76chna	; send tone value to terminal
+	jsr txhexword
+	ldaa #$0d
+	jsr txbyte
+	ldx #sn76chna	; point to tone value again
+	tba		; set channel
+	jsr setsnf	; play
+
+	ldaa #x3
+	jsr dly1
+
+	pshb		; save B for later
+	ldd sn76chna	; have to use D because can't shift X
+	asld
+	std sn76chna
+	xgdx		; have to use X because can't compare D
+	pulb
+	cpx #$0400
+	bne .2
+
+	ldx #$03ff		; lowest tone
+	stx sn76chna	; store it
+	ldx #sn76chna	; point to it
+	jsr txhexword
+	ldaa #$0d
+	jsr txbyte
+	ldx #sn76chna	; lowest tone
+	tba		; set channel
+	jsr setsnf	; play
+
+	ldaa #x3
+	jsr dly1
+
+	ldx #$0004	; restore initial frequency
+	stx sn76chna
+
+	rts
+
+sn74scan subroutine on entry B contains channel number
+.1	ldx #sn76chna
+	jsr txhexword
+	ldaa #$0d
+	jsr txbyte
+	ldx #sn76chna
+	tba		; set channel
+	jsr setsnf
+
+	pshb
+	ldab #$02
+.3	ldaa #$ff
+.2	deca
+	bne .2
+	decb
+	bne .3
+	pulb
+
+	ldx sn76chna
+	inx
+	stx sn76chna
+	cpx #$0400
+	bne .1
+
+	ldx #$0004
+	stx sn76chna
+
+	rts
+
+; set SN registers to values pointed to by X
+setsnregs subroutine
+	ldab #$80
+.1	jsr setsnf
+	inx
+	inx
+	incb
+	ldaa 0,X
+	aba
+	jsr setsn
+	inx
+	incb
+	cmpb #$e0
+	bne .1
+	ldaa 0,X	; noise control
+	aba
+	jsr setsn
+	inx
+	incb
+	ldaa 0,X	; noise attenuation
+	aba
+	bra setsn
+;	rts
+
+; set two byte frequency pointed to by X for channel given in B
+setsnf
+	ldaa 1,X	; put low byte in A while setting high nibble to required channel
+	anda #$0f
+	aba
+
+	jsr setsn
+
+	pshb		; save B for later
 	ldd 0,X
 	lsrd
 	lsrd
 	lsrd
 	lsrd
 	tba		; tone 1 pitch byte 2
+	pulb
 	anda #$3f
-	jsr setsn
-	rts
+;	jsr setsn
+;	rts
 
-; set one byte register
+; set one byte register given in A
 setsn	staa CPLDl
-	ldaa #$fe
-	staa CPLDh
-	ldaa #$fc
-	staa CPLDh
+	ldaa SPREG
+	oraa #SN76SEL
+	staa SPREG
 	ldaa #x1
 .16	deca
 	bne .16
-	ldaa #$fe
-	staa CPLDh
-	ldaa #$ff
-	staa CPLDh
+	ldaa SPREG
+	anda ~#SN76SEL
+	staa SPREG
 	rts
 
-t1	dc.w $0001
-t2	dc.w $0083	; A4
-t3	dc.w $006e	; C5
-t4	dc.w $0057	; E5
+sn76ch0	dc "Channel 0",$0d,$0a,$0
+sn76ch1	dc "Channel 1",$0d,$0a,$0
+sn76ch2	dc "Channel 2",$0d,$0a,$0
+sn76ch3	dc "Noise",$0d,$0a,$0
+sn76vol	dc "Volume",$0d,$0a,$0
+
+sn76ch1f	equ RAMLO
+sn76ch1a	equ RAMLO + 2
+sn76ch2f	equ RAMLO + 3
+sn76ch2a	equ RAMLO + 5
+sn76ch3f	equ RAMLO + 6
+sn76ch3a	equ RAMLO + 8
+sn76chns	equ RAMLO + 9
+sn76chna	equ RAMLO + 10
 
 x1	equ $10	; delay between control pin changes
 x2	equ $04	; delay between bytes
 x3	equ 10	; long delay between frq changes
-
-; f = 1843230/(32*n)
-; n = 1843230/(32*f)
-; A4 = 131 $83
 
 r6551	subroutine
 r6551	
@@ -5426,15 +5671,15 @@ MSGEND      equ     .
         org   $FFEA       ; IRQ Vectors $FFEA - FFFF
         
         dc.w  IRQIRQ2         ;IRQ2    $0098   $FFEA & $FFEB
-        dc.w  IRQCMI          ;CMI     $0095
-        dc.w  TRAP01          ;TRAP    $FFEE & $FFEF
-        dc.w  IRQSIO          ;SIO     $009B  $FFF0 & $FFF1   
-        dc.w  IRQTOI          ;TOI     $0092
-        dc.w  IRQOCI          ;OIC     $008F
-        dc.w  IRQICI          ;ICI     $008C
-        dc.w  IRQIRQ1         ;IRQ1    $0089
-        dc.w  IRQSWI          ;SWI     $0086
-        dc.w  IRQNMI          ;NMI     $0083
-        dc.w  RESET           ;RESET   $FFFE & $FFFF
+        dc.w  IRQCMI          ;CMI     $0095   $FFEC & $FFED
+TRAP    dc.w  TRAP01          ;TRAP            $FFEE & $FFEF
+SCI     dc.w  IRQSIO          ;SIO     $009B   $FFF0 & $FFF1   SCI - Serial RDRF + ORFE + TDRE
+ITOF    dc.w  IRQTOI          ;TOI     $0092	Timer Overflow
+IOCF    dc.w  IRQOCI          ;OIC     $008F	Timer Output Compare
+IICF    dc.w  IRQICI          ;ICI     $008C	Timer Input Capture interrupt
+IRQ1    dc.w  IRQIRQ1         ;IRQ1    $0089
+SWI     dc.w  IRQSWI          ;SWI     $0086
+NMI     dc.w  IRQNMI          ;NMI     $0083
+RES     dc.w  RESET           ;RESET   $FFFE & $FFFF
 
 
