@@ -90,7 +90,7 @@ SNDSEL	equ $11d2	; speccy sound IF $11d2
 MIC		equ $02	; microphone sound input (tape) is on D0,
 				; sound output register is on D1
 AUDIOSTAT	equ $11d3	; HD6321 IRQ lines
-EXTSEL	equ $11d8	; external select connector $11d4 - 11df
+EXTSEL	equ $11d4	; external select connector $11d4 - 11df
 
 RAMB4		equ $11f8	; low ram ($4000-$7FFF) bank mapping
 RAMB8		equ $11f9	; high  ram ($8000-$BFFF) bank mapping
@@ -668,6 +668,7 @@ BEEPX   PULX
 ;; SERINIT   Initialize the Serial Port using Timer1
 ;;************************************************************************
 SERINIT subroutine
+	JSR R51INIT
         LDAA  #$04      ;ENABLE INTERNAL UART, INTERNAL CLOCK, 115200 BAUD
 	      STAA  REG_RMCR
 	      LDAA  #$0A      ;ENABLE RECIEVE AND TRANSMITT DATA
@@ -736,6 +737,7 @@ IRQINIT subroutine
 ;; TRCSR1: |RDRF|ORFE|TDRE|RiE|RE|TIE|TE|WU| 
 ;;************************************************************************
 OUTCHR  subroutine
+	JMP OUTR65CH
 	      PSHB		             ;SAVE B-REG
 OUTCHR1	LDAB	REG_TRCSR1     ;Get Status Reg 
 	      ASLB                 ;TDRE->C
@@ -752,7 +754,9 @@ OUTCHR1	LDAB	REG_TRCSR1     ;Get Status Reg
 ;;************************************************************************
 INCHRER subroutine
        	LDAA  REG_RDR	        ;ON ERROR, FLUSH BUFFER AND CLEAR ERROR FLAG
-INCHR	  LDAA  REG_TRCSR1
+INCHR
+	  JMP INR65CHR
+	LDAA  REG_TRCSR1
         ANDA  #$C0	          ;FILTER OUT RDRF AND ORFE
         CMPA	#$00
         BEQ	  INCHR           ;WAIT FOR CHARACTER
@@ -765,6 +769,7 @@ INCHR	  LDAA  REG_TRCSR1
 ;; INCHRE  wait for a serial byte and return in A with echo
 ;;************************************************************************
 INCHRE  subroutine
+	JMP INR65CHRE
         JSR   INCHR
         LDAA  FLAGS_A
         ANDA  #$01        ;Is ECHO ON?
@@ -777,7 +782,9 @@ INCHRE1 LDAA  RX_BYTE
 ; INCHRIF  Input a character if available
 ; Returns with input character or zero (with C=1) if none available
 ;******************************************************************
-INCHRIF LDAA  REG_TRCSR1
+INCHRIF
+	JMP INR65CHRIF
+	LDAA  REG_TRCSR1
         ANDA  #$C0	          ;FILTER OUT RDRF AND ORFE
         CMPA	#$00
         BEQ	  INCHRNC         ; No Data Ready loop again
@@ -4493,12 +4500,7 @@ sayamplval	dc " amplitude: ",$0d,$0a,$0
 sayenv	dc "Testing AY envelopes",$0d,$0a,$0
 sayenvnum	dc " envelope: ",$0d,$0a,$0
 
-sn76489s	subroutine
-
-x1	equ $10	; delay between control pin changes
-x2	equ $04	; delay between bytes
-x3	equ 10	; long delay between frq changes
-
+sn76489	subroutine
 sn76489	
 	ldaa #$ff
 	staa CPLDh
@@ -4604,53 +4606,217 @@ t2	dc.w $0083	; A4
 t3	dc.w $006e	; C5
 t4	dc.w $0057	; E5
 
+x1	equ $10	; delay between control pin changes
+x2	equ $04	; delay between bytes
+x3	equ 10	; long delay between frq changes
+
 ; f = 1843230/(32*n)
 ; n = 1843230/(32*f)
 ; A4 = 131 $83
 
-r6551s	subroutine
-
-r6551	ldab #$ff
-.1	staa EXTSEL
-;	ldaa #$01
-;	jsr dly1
-	decb
-	bne .1
+r6551	subroutine
+r6551	
+	ldaa #$10		; set R6551 control register
+	staa R65CTRL
+	ldab R65CTRL	; read it back and display error if contents does not match (bad chip?)
+	tba
+	cmpa #$00
+	beq .6
+	ldx #R65ctrlerr
+	jsr txstring
+	tba
+	jsr txhexbyte
+	ldx #crlf
+	jsr txstring
 	rts
 
+.6	ldaa #$0a		; set R6551 command register
+	staa R65CMND
+	ldab R65CMND	; read it back and display error if contents does not match (bad chip?)
+	tba
+	cmpa #$0a
+	beq .5
+	ldx #R65cmderr
+	jsr txstring
+	tba
+	jsr txhexbyte
+	ldx #crlf
+	jsr txstring
+	rts
+
+.5	ldab #$10		; repeat test 16 times
+	ldaa #$aa
+.1	pshb			; save test counter
+	psha
+
+	ldaa #$7f		; for troubleshooting
+	staa CPLDh
+
+	ldab #$00		; timeout counter
+.2	incb
+	beq .4		; on timeout jump
+	ldaa R65STATUS	; wait for transmitter to be ready
+
+	psha			; save for later value read from status reg
+	jsr txhexbyte	; for troubleshooting display it
+	ldaa #$0d
+	jsr txbyte
+	pula			; restore it
+	anda #R65_TXE	; is TX register empty?
+	beq .2		; loop if not
+
+	ldaa #$3f		; for troubleshooting
+	staa CPLDh
+
+	pula			; get last sent byte
+	eora #$ff		; invert it
+	psha			; save for next send
+	staa R65DATA	; and send it
+
+	ldaa #$ff		; for troubleshooting
+	staa CPLDh
+
+;	ldaa #$10
+;	jsr dly1
+	pula			; have to pul A to get to B
+	pulb			; get test iteration counter (16 loops total)
+	decb
+	bne .1
+	rts			; done all 16 loops
+
+.4	pula			; remove leftovers from stack
+	pulb
+	ldx #R65timout	; display error message
+	jsr txstring
+	rts			; and return
+
+;fast version without testing and delays
+r6551f	subroutine
+r6551f	
+	ldaa #$10		; set R6551 control register
+	staa R65CTRL
+	ldaa #$0a		; set R6551 command register
+	staa R65CMND
+	ldx #R65hello
+.1	ldab #$00		; timeout counter
+.2	incb
+	beq .4		; on timeout jump
+	ldaa R65STATUS	; wait for transmitter to be ready
+	anda #R65_TXE	; is TX register empty?
+	beq .2		; loop if not
+	ldaa 0,x		; fetch character to be sent
+	bne .5
+	rts			; exit if end of string
+.5	staa R65DATA	; else send it
+	inx			; point to next char
+	bra .1		; continue loop
+
+.4	pula			; remove leftovers from stack
+	pulb
+	ldx #R65timout	; display error message
+	jsr txstring
+	rts			; and return
+
+;;************************************************************************
+;; R51INIT   Initialize the Serial Port using Timer1
+;;************************************************************************
+R51INIT subroutine
+	ldaa #$10		; set R6551 control register
+	staa R65CTRL
+	ldaa #$0b		; set R6551 command register
+	staa R65CMND
+	rts
+
+;;************************************************************************
+;; OUTR65CHR  Transmit a serial byte from A                            OK
+;;
+;;************************************************************************
+OUTR65CH  subroutine
+OUTR65CH	psha
+	pshb
+	ldab #$00		; timeout counter
+.2	incb
+	beq .4		; on timeout jump
+	ldaa R65STATUS	; wait for transmitter to be ready
+	anda #R65_TXE	; is TX register empty?
+	beq .2		; loop if not
+	pulb
+	pula			; fetch character to be sent
+	staa R65DATA	; else send it
+	rts
+
+.4	pulb			; remove leftovers from stack
+	pula
+	ldx #R65timout	; display error message
+	jsr txstring
+	rts			; and return
+
+;;************************************************************************
+;; INR65CHR  wait for a serial byte and return in A
+;;
+;;************************************************************************
+INR65CHRER subroutine
+	LDAA  R65DATA	        ;ON ERROR, FLUSH BUFFER AND CLEAR ERROR FLAG
+INR65CHR	LDAA  R65STATUS
+	bita	#R65_PARITY		; parity error?
+	bne INR65CHRER
+	bita	#R65_FE		; framing error?
+	bne INR65CHRER
+	bita	#R65_OVR		; overrun?
+	bne INR65CHRER
+	ANDA  #R65_RXF	          ; check if byte available
+	BEQ	  INR65CHR           ;WAIT FOR CHARACTER
+	LDAA  R65DATA         ;READ RECIEVED CHARACTER
+	STAA  RX_BYTE         ;Save in RX_BYTE
+	RTS
+;;************************************************************************
+;; INCHRE  wait for a serial byte and return in A with echo
+;;************************************************************************
+INR65CHRE  subroutine
+        JSR   INR65CHR
+        LDAA  FLAGS_A
+        ANDA  #$01        ;Is ECHO ON?
+        BEQ   INR65CHRE1     ;NO = Skip OUTCHR
+        LDAA  RX_BYTE        
+        JSR   OUTR65CH
+INR65CHRE1 LDAA  RX_BYTE
+        RTS
+;******************************************************************
+; INCHRIF  Input a character if available
+; Returns with input character or zero (with C=1) if none available
+;******************************************************************
+INR65CHRIF	LDAA  R65STATUS
+	ANDA  #R65_RXF	          ; check if byte available
+	BEQ	  INR65CHRNC         ; No Data Ready,exit
+	jsr INR65CHR         ;READ RECIEVED CHARACTER
+	CLC                   ; Clear The Carry
+	RTS                   ; Return
+INR65CHRNC	LDAA  #$00            ; No Data - Return zero and C=1
+	SEC
+	RTS
+       
+
+; R6551 ACIA
+R65DATA	equ EXTSEL
+R65STATUS	equ EXTSEL+1
+R65CMND	equ EXTSEL+2
+R65CTRL	equ EXTSEL+3
+; status register biits
+R65_IRQ	equ $80	; bit 7 IRQ flag
+R65_DSR	equ $40	; bit 6 
+R65_DCD	equ $20	; bit 5 
+R65_TXE	equ $10	; bit 4 transmit register empty
+R65_RXF	equ $08	; bit 3 receive register full
+R65_OVR	equ $04	; bit 2 overrun
+R65_FE	equ $02	; bit 1 framing error
+R65_PARITY	equ $01	; bit 0 parity error
+
+R65hello	dc $0d,$0a,"Hello World!",$0d,$0a,$00
+R65ctrlerr	dc "Control register: wrote $00, read $",$00
+R65cmderr	dc "Command register: wrote $0a, read $",$00
+R65timout	dc $0d,$0a,"Tx ready timed out",$0d,$0a,$00
+
 ; connect port A to port B and CA1 to CB2 and CA2 to CB1
-
-conf21a	dc "Configuring HD6321 PRA output PRB input",$0d,$0a,$0
-conf21b	dc "Testing ports",$0d,$0a," W     R",$0d,$0a,$0
-conf21c	dc "Configuring HD6321 PRA input PRB output",$0d,$0a,$0
-conf21d	dc "A -> B ",$0
-conf21e	dc "B -> A ",$0
-conf21f	dc "Configuring HD6321 PRA and PRB input",$0d,$0a,$0
-extram	dc "External RAM ",$0d,$0a,$0
-ok		dc "OK",$0d,$0a,$0
-fail		dc "FAIL",$0d,$0a,$0
-crlf		dc $0d,$0a,$0
-
-; tcsr bits
-OLVL	equ $01	; output level
-IEDG	equ $02	; input edge
-ETOI	equ $04	; enable timer overflow int
-EOCI	equ $08	; enable output compare int
-EICI	equ $10	; enable input capture int
-TOF	equ $20	; timer overflow flag
-OCF	equ $40	; output compare flag
-ICF	equ $80	; input capture flag
-
-; trcsr bits - Transmit Receive Control Status Register
-WU	equ $01	; Wake Up
-TE	equ $02	; Transmit Enable
-TIE	equ $04	; Transmit Interrupt Enable
-RE	equ $08	; Receive Enable
-RIE	equ $10	; Receive Interupt Enable
-TDRE	equ $20	; Transmit Data Register Empty
-ORFE	equ $40	; Over Run Framing Error
-RDRF	equ $80	; Receive Data Register Full
-
 test6321 subroutine
 
 test6321
@@ -4820,6 +4986,37 @@ conf21Bout
 	staa CRA		; write that to CRA
 	staa CRB		; and to CRB
 	rts
+
+conf21a	dc "Configuring HD6321 PRA output PRB input",$0d,$0a,$0
+conf21b	dc "Testing ports",$0d,$0a," W     R",$0d,$0a,$0
+conf21c	dc "Configuring HD6321 PRA input PRB output",$0d,$0a,$0
+conf21d	dc "A -> B ",$0
+conf21e	dc "B -> A ",$0
+conf21f	dc "Configuring HD6321 PRA and PRB input",$0d,$0a,$0
+extram	dc "External RAM ",$0d,$0a,$0
+ok		dc "OK",$0d,$0a,$0
+fail		dc "FAIL",$0d,$0a,$0
+crlf		dc $0d,$0a,$0
+
+; tcsr bits
+OLVL	equ $01	; output level
+IEDG	equ $02	; input edge
+ETOI	equ $04	; enable timer overflow int
+EOCI	equ $08	; enable output compare int
+EICI	equ $10	; enable input capture int
+TOF	equ $20	; timer overflow flag
+OCF	equ $40	; output compare flag
+ICF	equ $80	; input capture flag
+
+; trcsr bits - Transmit Receive Control Status Register
+WU	equ $01	; Wake Up
+TE	equ $02	; Transmit Enable
+TIE	equ $04	; Transmit Interrupt Enable
+RE	equ $08	; Receive Enable
+RIE	equ $10	; Receive Interupt Enable
+TDRE	equ $20	; Transmit Data Register Empty
+ORFE	equ $40	; Over Run Framing Error
+RDRF	equ $80	; Receive Data Register Full
 
 delay subroutine
 delay	psha
