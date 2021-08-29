@@ -4545,9 +4545,11 @@ sn76init	jsr sn76off
 	stx sn76ch2f
 	ldx #$0057	; E5
 	stx sn76ch3f
+	ldx #$00ff
+	stx sn76tmpo	; playback speed
 
-	ldx #$0004
-	stx sn76chna
+;	ldx #$0004
+;	stx sn76chna
 
 	rts
 
@@ -4846,6 +4848,97 @@ setsn	staa CPLDl
 	staa SPREG
 	rts
 
+sn76play subroutine
+	jsr sn76init	; initialize regs
+	ldx #$1000
+	stx sn76tmpo	; playback speed
+	ldx #cha	; beginning of song channel A
+	stx sn76cha
+	ldx #chb	; beginning of song channel B
+	stx sn76chb
+	ldx #chc	; beginning of song channel C
+	stx sn76chc
+
+.1	ldx sn76cha
+	ldab 0,x	; load note
+	beq pause	; pause note
+	cmpb #255	; end of song?
+	bne .4
+	jmp sn76off	; turn off audio and exit
+.4	ldx #notes	; point to note table
+	abx		; add note offset
+	ldx 0,x	; get note value
+	stx sn76ch3f
+	ldaa #0	; turn on volume
+	bra .3
+pause	ldaa #20	; delay to account for skipped code
+.2	deca
+	bne .2
+	ldaa #$0f
+.3	staa sn76ch3a	; set volume
+
+	jsr setsnregs	; play note
+
+	ldx sn76cha	; restore song pointer
+	inx		; point to note length
+	ldaa 0,x	; get length
+	inx		; point to next note
+	stx sn76cha
+.6	ldx sn76tmpo
+.5	dex
+	bne .5
+	deca
+	bne .6
+	bra .1
+
+	;      
+notes	dc.w 989,933	; A#1 B1
+	dc.w 881,831,785,741,699,660,623,588,555,524,494,467	; C2 - B2	3
+	dc.w 440,416,392,370,349,330,311,294,277,262,247,233	; C3 - B3	15
+	dc.w 220,208,196,185,175,165,156,147,139,131,124,117	; C4 - B4	27
+	dc.w 110,104, 98, 93, 87, 82, 78, 73, 69, 65, 62, 58	; C5 - B5	39
+	dc.w  55, 52, 49, 46, 44, 41, 39, 37, 35, 33, 31, 29	; C6 - B6	51
+	dc.w  28, 26, 25, 23, 22, 21, 19, 18, 17, 16, 15	; C7 - A#7	63
+	;      0   1   2   3   4   5   6   7   8   9  10  11
+	;      C  C#   D  D#   E   F  F#   G  G#   A  A#   B
+
+cha	dc.b 32,64
+	dc.b 35,32
+	dc.b 32,8
+	dc.b  0,8
+	dc.b 32,16
+	dc.b 37,32
+	dc.b 32,32
+	dc.b 29,32
+	dc.b 32,32
+	dc.b 39,16
+	dc.b 32,8
+	dc.b  0,8
+	dc.b 32,16
+	dc.b 40,16
+	dc.b 39,16
+	dc.b 35,16
+	dc.b 32,16
+	dc.b 39,16
+	dc.b 44,16
+	dc.b 32,16
+	dc.b 29,8
+	dc.b  0,8
+	dc.b 29,16
+	dc.b 26,32
+	dc.b 34,
+	dc.b 32,128
+	dc.b 0,64
+	dc.b 32,64
+	dc.b 35,32
+	dc.b 32,8
+	dc.b  0,8
+	dc.b 32,16
+	dc.b 255,255
+
+chb
+chc
+
 sn76ch0	dc "Channel 0",$0d,$0a,$0
 sn76ch1	dc "Channel 1",$0d,$0a,$0
 sn76ch2	dc "Channel 2",$0d,$0a,$0
@@ -4860,6 +4953,10 @@ sn76ch3f	equ RAMLO + 6
 sn76ch3a	equ RAMLO + 8
 sn76chns	equ RAMLO + 9
 sn76chna	equ RAMLO + 10
+sn76cha	equ RAMLO + 11
+sn76chb	equ RAMLO + 13
+sn76chc	equ RAMLO + 15
+sn76tmpo	equ RAMLO + 17
 
 x1	equ $10	; delay between control pin changes
 x2	equ $04	; delay between bytes
