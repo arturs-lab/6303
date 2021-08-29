@@ -1,0 +1,74 @@
+cha
+	dc.b 0,4
+	dc.b 0,4
+	dc.b 0,4
+	dc.b 0,4
+	dc.b 0,4
+	dc.b 0,4
+	dc.b 0,4
+	dc.b 0,4
+	dc.b 0,4
+	dc.b 0,4
+	dc.b 0,4
+	dc.b 0,4
+	dc.b 0,4
+	dc.b 0,4
+	dc.b 0,4
+	dc.b 0,4
+	dc.b 0,4
+	dc.b 0,4
+	dc.b 0,4
+	dc.b 0,4
+	dc.b 0,4
+	dc.b 0,4
+	dc.b 0,4
+	dc.b 0,4
+
+chb
+	dc.b 0,4
+	dc.b 0,4
+	dc.b 0,4
+	dc.b 0,4
+	dc.b 0,4
+	dc.b 0,4
+	dc.b 0,4
+	dc.b 0,4
+	dc.b 0,4
+	dc.b 0,4
+	dc.b 0,4
+	dc.b 0,4
+	dc.b 0,4
+	dc.b 0,4
+	dc.b 0,4
+	dc.b 0,4
+	dc.b 0,4
+	dc.b 0,4
+	dc.b 0,4
+	dc.b 0,4
+	dc.b 0,4
+	dc.b 0,4
+	dc.b 0,4
+	dc.b 0,4
+
+chc
+	dc.b 74,4
+	dc.b 0,4
+	dc.b 253,4
+	dc.b 255,255
+	dc.b 75,4
+	dc.b 0,4
+	dc.b 76,4
+	dc.b 0,4
+	dc.b 77,4
+	dc.b 0,4
+	dc.b 78,4
+	dc.b 0,4
+	dc.b 79,4
+	dc.b 0,4
+	dc.b 80,4
+	dc.b 0,4
+	dc.b 81,4
+	dc.b 0,4
+	dc.b 253,4
+	dc.b 255,255
+
