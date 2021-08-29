@@ -4947,7 +4947,14 @@ sn76procnote subroutine
 	beq .1				; still playing current note?
 	decb					; yes, decrement note time
 	stab sn76chacn - sn76chab,x	; store note duration counter
-	ldab #14	; equalize duration of new note and same note tick
+	andb #$03
+	bne .8
+	ldab sn76ch1a - sn76chab,x	; load note attenuation
+	cmpb #$0f
+	beq .8
+	incb
+	stab  sn76ch1a - sn76chab,x	; update note attenuation
+.8	ldab #14	; equalize duration of new note and same note tick
 .7	decb
 	bne .7
 	rts
