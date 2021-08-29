@@ -668,7 +668,6 @@ BEEPX   PULX
 ;; SERINIT   Initialize the Serial Port using Timer1
 ;;************************************************************************
 SERINIT subroutine
-	JSR R51INIT
         LDAA  #$04      ;ENABLE INTERNAL UART, INTERNAL CLOCK, 115200 BAUD
 	      STAA  REG_RMCR
 	      LDAA  #$0A      ;ENABLE RECIEVE AND TRANSMITT DATA
@@ -737,7 +736,6 @@ IRQINIT subroutine
 ;; TRCSR1: |RDRF|ORFE|TDRE|RiE|RE|TIE|TE|WU| 
 ;;************************************************************************
 OUTCHR  subroutine
-	JMP OUTR65CH
 	      PSHB		             ;SAVE B-REG
 OUTCHR1	LDAB	REG_TRCSR1     ;Get Status Reg 
 	      ASLB                 ;TDRE->C
@@ -755,7 +753,6 @@ OUTCHR1	LDAB	REG_TRCSR1     ;Get Status Reg
 INCHRER subroutine
        	LDAA  REG_RDR	        ;ON ERROR, FLUSH BUFFER AND CLEAR ERROR FLAG
 INCHR
-	  JMP INR65CHR
 	LDAA  REG_TRCSR1
         ANDA  #$C0	          ;FILTER OUT RDRF AND ORFE
         CMPA	#$00
@@ -769,7 +766,6 @@ INCHR
 ;; INCHRE  wait for a serial byte and return in A with echo
 ;;************************************************************************
 INCHRE  subroutine
-	JMP INR65CHRE
         JSR   INCHR
         LDAA  FLAGS_A
         ANDA  #$01        ;Is ECHO ON?
@@ -783,7 +779,6 @@ INCHRE1 LDAA  RX_BYTE
 ; Returns with input character or zero (with C=1) if none available
 ;******************************************************************
 INCHRIF
-	JMP INR65CHRIF
 	LDAA  REG_TRCSR1
         ANDA  #$C0	          ;FILTER OUT RDRF AND ORFE
         CMPA	#$00
