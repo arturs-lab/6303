@@ -3983,6 +3983,22 @@ swpex ldaa #07		; map ROM to RAM page 7
         
 ; AY test
 
+aytestall	jsr ayporttest
+	jsr aytest
+	pshx
+	pshb
+	ldab #$08
+.14	ldx #$ffff
+.10	dex
+	bne .10
+	decb
+	bne .14
+	pulb
+	pulx
+	jsr ampltest
+	jsr envtest
+	rts
+
 aytest subroutine
 
 aytest
@@ -4024,12 +4040,12 @@ ymz284
 	rts
 
 ayinit
-	dc $00,$06	; A fine
-	dc $01,$01	; A coarse
+	dc $00,$DC	; A fine A4=$106, C5=$DC E5=$AF FRQout = CPU FRQ / 16 / N
+	dc $01,$00	; A coarse
 	dc $02,$06	; B fine
 	dc $03,$01	; B coarse
-	dc $04,$06	; C fine
-	dc $05,$01	; C coarse (4bit)
+	dc $04,$AF	; C fine
+	dc $05,$00	; C coarse (4bit)
 	dc $06,$07	; noise (5bit)
 	dc $07,$38	; mixer
 	dc $08,$0f	; A level
@@ -4069,12 +4085,25 @@ setayreg
 ; test amplitude
 ; first decrease then increase
 ; repeat 3 times
+tonet	dc $06,$01	; A
+	dc $06,$01	; B
+	dc $06,$01	; C
 
 ampltest
 	psha
 	pshb
 	pshx
-	ldaa #$08		; channel A level
+	ldx #tonet	; preset all channels to A440
+	ldaa #0
+.16	staa AYSEL
+	ldab 0,x
+	stab AYSEL+1
+	inx
+	inca
+	cmpa #$06
+	bne .16
+
+	ldaa #$09		; channel B level
 	staa AYSEL
 	staa ymbase
 	ldaa #$00		; set to off
@@ -4086,41 +4115,39 @@ ampltest
 	ldaa #$00		; set to off
 	staa AYSEL+1
 	staa ymbase+1
+	ldaa #$08		; channel A level
+	staa AYSEL
+	staa ymbase
+	ldx #saycha
+	jsr txstring
+	ldaa "A"
+	jsr txbyte
+	ldx #sayamplval
+	jsr txstring
+	jsr sndwav
+
 	ldaa #$09		; channel B level
 	staa AYSEL
 	staa ymbase
+	ldx #saycha
+	jsr txstring
+	ldaa "B"
+	jsr txbyte
 	ldx #sayamplval
 	jsr txstring
-	ldab #$04
-.7	ldaa #$10
-.4	deca			; first decrement level
-	staa AYSEL+1
-	staa ymbase+1		; set current level on both chips
-	psha
-	jsr txhex
-	ldaa #$0d
+	jsr sndwav
+
+	ldaa #$0a		; channel C level
+	staa AYSEL
+	staa ymbase
+	ldx #saycha
+	jsr txstring
+	ldaa "C"
 	jsr txbyte
-	pula
-	ldx #$ffff		; delay loop
-.3	dex
-	bne .3
-	cmpa #$00
-	bne .4		; next level if not 0 yet
-.6	inca			; otherwise start incrementing
-	staa ymbase+1		; set current level on both chips
-	staa AYSEL+1
-	psha
-	jsr txhex
-	ldaa #$0d
-	jsr txbyte
-	pula
-	ldx #$ffff		; delay loop
-.5	dex
-	bne .5
-	cmpa #$0f
-	bne .6		; done when reached $0f
-	decb
-	bne .7		; do it 4 times
+	ldx #sayamplval
+	jsr txstring
+	jsr sndwav
+
 	jsr txcrlf
 	ldaa #$09		; channel B level
 	staa ymbase
@@ -4133,54 +4160,155 @@ ampltest
 	pula
 	rts
 
+sndwav	ldaa #$ff
+.4	inca			; first decrement level
+	staa AYSEL+1
+	staa ymbase+1		; set current level on both chips
+	psha
+	jsr txhex
+	ldaa #$0d
+	jsr txbyte
+	pula
+	ldx #$ffff		; delay loop
+.3	dex
+	bne .3
+	cmpa #$0f
+	bne .4		; next level if not 0 yet
+.6	deca			; otherwise start incrementing
+	staa ymbase+1		; set current level on both chips
+	staa AYSEL+1
+	psha
+	jsr txhex
+	ldaa #$0d
+	jsr txbyte
+	pula
+	ldx #$ffff		; delay loop
+.5	dex
+	bne .5
+	cmpa #$00
+	bne .6		; done when reached $0f
+	rts
+
 ; test envelope
 ; set each envelope in turn and wait
 envtest
 	psha
 	pshb
 	pshx
-	ldaa #$08		; channel A level
-	staa AYSEL
-	staa ymbase
-	ldaa #$00		; set to off
-	staa AYSEL+1
-	staa ymbase+1
-	ldaa #$09		; channel B level
-	staa AYSEL
-	staa ymbase
-	ldaa #$1f		; set to 'envelope controlled'
-	staa AYSEL+1
-	staa ymbase+1
 	ldaa #$0a		; channel C level
 	staa AYSEL
 	staa ymbase
 	ldaa #$00		; set to off
 	staa AYSEL+1
 	staa ymbase+1
+	ldaa #$09		; channel B level
+	ldaa #$00		; set to off
+	staa AYSEL
+	staa ymbase
+	staa AYSEL+1
+	staa ymbase+1
+
+	ldaa #$08		; channel A level
+	staa AYSEL
+	staa ymbase
+	ldaa #$1f		; set to 'envelope controlled'
+	staa AYSEL+1
+	staa ymbase+1
 	ldaa #$0d		; select envelope register on both chips
 	staa ymbase
 	staa AYSEL
+	ldx #saycha
+	jsr txstring
+	ldaa "A"
+	jsr txbyte
 	ldx #sayenvnum
 	jsr txstring
-	ldab #$40
-.12	ldaa #$00		; start with envelope #0
+	jsr envtdo
+	ldaa #$08		; channel A level
+	staa AYSEL
+	staa ymbase
+	ldaa #$00		; set to off
+	staa AYSEL+1
+	staa ymbase+1
+
+	ldaa #$09		; channel B level
+	staa AYSEL
+	staa ymbase
+	ldaa #$1f		; set to 'envelope controlled'
+	staa AYSEL+1
+	staa ymbase+1
+	ldaa #$0d		; select envelope register on both chips
+	staa ymbase
+	staa AYSEL
+	ldx #saycha
+	jsr txstring
+	ldaa "B"
+	jsr txbyte
+	ldx #sayenvnum
+	jsr txstring
+	jsr envtdo
+	ldaa #$09		; channel B level
+	staa AYSEL
+	staa ymbase
+	ldaa #$00		; set to off
+	staa AYSEL+1
+	staa ymbase+1
+
+	ldaa #$0a		; channel C level
+	staa AYSEL
+	staa ymbase
+	ldaa #$1f		; set to 'envelope controlled'
+	staa AYSEL+1
+	staa ymbase+1
+	ldaa #$0d		; select envelope register on both chips
+	staa ymbase
+	staa AYSEL
+	ldx #saycha
+	jsr txstring
+	ldaa "C"
+	jsr txbyte
+	ldx #sayenvnum
+	jsr txstring
+	jsr envtdo
+	ldaa #$0a		; channel C level
+	staa AYSEL
+	staa ymbase
+	ldaa #$00		; set to off
+	staa AYSEL+1
+	staa ymbase+1
+
+	ldaa #$07		; disable sound
+	staa ymbase
+	staa AYSEL
+	ldaa #$3f		; disable sound
 	staa ymbase+1
 	staa AYSEL+1
+	pulx
+	pulb
+	pula
+	rts
+
+envtdo	ldab #$10
+	ldaa #$00
 	jsr txhex
 	ldaa #$0d
 	jsr txbyte
+.12	ldaa #$00		; start with envelope #0
+	staa ymbase+1
+	staa AYSEL+1
 	ldx #$ffff
 .8	dex
 	bne .8
 	decb
 	bne .12
-	ldab #$40
-.13	ldaa #$04		; then envelope #$04
-	staa ymbase+1
-	staa AYSEL+1
+	ldab #$10
+	ldaa #$04
 	jsr txhex
 	ldaa #$0d
 	jsr txbyte
+.13	ldaa #$04		; then envelope #$04
+	staa ymbase+1
+	staa AYSEL+1
 	ldx #$ffff
 .9	dex
 	bne .9
@@ -4194,24 +4322,18 @@ envtest
 	ldaa #$0d
 	jsr txbyte
 	pula
-	ldab #$40
+	ldab #$10
 .14	ldx #$ffff
 .10	dex
 	bne .10
 	decb
 	bne .14
 	inca
-	cmpa #$10
+	cmpa #$09
+	bne .15
+	inca
+.15	cmpa #$0f
 	bne .11
-	ldaa #$07		; disable sound
-	staa ymbase
-	staa AYSEL
-	ldaa #$3f		; disable sound
-	staa ymbase+1
-	staa AYSEL+1
-	pulx
-	pulb
-	pula
 	rts
 
 ayportt subroutine
@@ -4243,7 +4365,7 @@ ayporttest
 	beq .3
 	jsr cmpayfail
 .3	ldaa #$1
-	jsr dly1
+;	jsr dly1
 	incb
 	bne .1		; continue loop for all 255 values
 
@@ -4285,7 +4407,7 @@ ayporttest
 	beq .4
 	jsr cmpayfail
 .4	ldaa #$1
-	jsr dly1
+;	jsr dly1
 	incb
 	bne .2		; continue loop for all 255 values
 
@@ -4364,9 +4486,103 @@ confaye	dc "B -> A ",$0
 confayf	dc "Configuring AY PRA and PRB input",$0d,$0a,$0
 sayinit	dc "Initializing AY chip",$0d,$0a,$0
 sayampl	dc "Testing AY amplitude",$0d,$0a,$0
-sayamplval	dc "amplitude: ",$0d,$0a,$0
+saycha	dc "Channel ",$0
+sayamplval	dc " amplitude: ",$0d,$0a,$0
 sayenv	dc "Testing AY envelopes",$0d,$0a,$0
-sayenvnum	dc "envelope: ",$0d,$0a,$0
+sayenvnum	dc " envelope: ",$0d,$0a,$0
+
+sn76489s	subroutine
+
+x1	equ $10	; delay between control pin changes
+x2	equ $04	; delay between bytes
+x3	equ 10	; long delay between frq changes
+
+sn76489	
+	ldaa #$ff
+	staa CPLDh
+
+	ldaa #$ff	; noise attenuation
+	jsr setsn
+
+	ldaa #$b0	; tone 3 attenuation
+	jsr setsn
+
+	ldaa #$d0	; tone 2 attenuation
+	jsr setsn
+
+	ldaa #$90	; tone 1 attenuation
+	jsr setsn
+
+.2	ldx #t1
+	jsr txhexword
+	ldaa #$0d
+	jsr txbyte
+	ldx t1
+	ldab #$80	; channel 0
+	jsr setsnf
+
+	ldaa #x3
+	jsr dly1
+
+.3	ldx t1
+	inx
+	stx t1
+	cpx #$0400
+	bne .2
+
+	ldx #$0001
+	stx t1
+
+	ldaa #$9f	; tone 1 attenuation
+	jsr setsn
+
+	ldaa #$df	; tone 2 attenuation
+	jsr setsn
+
+	ldaa #$bf	; tone 3 attenuation
+	jsr setsn
+
+	rts
+
+; set two byte frequency
+setsnf
+	ldaa 1,X	; put low byte in A
+	anda #$0f
+	oraa #$80	; tone 1 pitch byte 1
+	jsr setsn
+
+	ldd 0,X
+	lsrd
+	lsrd
+	lsrd
+	lsrd
+	tba		; tone 1 pitch byte 2
+	jsr setsn
+
+; set one byte register
+setsn	staa CPLDl
+	ldaa #$fe
+	staa CPLDh
+	ldaa #$fc
+	staa CPLDh
+	ldaa #x1
+.16	deca
+	bne .16
+	ldaa #$fe
+	staa CPLDh
+	ldaa #$ff
+	staa CPLDh
+	rts
+
+t1	dc.w $0001
+t2	dc.w $0083	; A4
+t3	dc.w $006e	; C5
+t4	dc.w $0057	; E5
+
+; f = 1843230/(32*n)
+; n = 1843230/(32*f)
+; A4 = 131 $83
+
 
 ; connect port A to port B and CA1 to CB2 and CA2 to CB1
 
@@ -4610,6 +4826,7 @@ txhexbyte
 
 txhex subroutine	; transmit single HEX digit given in A
 txhex
+	psha
 	pshb
 	adda #"0"	; make is ASCII code for 0-9
 	cmpa #"9"	; is A > 9?
@@ -4622,6 +4839,7 @@ txhex
 	tba
 	staa REG_TDR	; send a string out via serial
 	pulb
+	pula
 	rts
 
 txbyte subroutine	; transmit byte given in A
