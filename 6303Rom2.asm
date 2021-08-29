@@ -4861,15 +4861,15 @@ sn76play subroutine
 	jsr sn76init	; initialize regs
 	ldaa #$0f
 	staa sn76chna	; noise attenuation
-	ldx #$1000
+	ldx song
 	stx sn76tmpo	; playback speed
-	ldx #cha		; beginning of song channel A
+	ldx #song+6		; beginning of song channel A
 	stx sn76chab
 	stx sn76cha
-	ldx #chb		; beginning of song channel B
+	ldx song+4		; beginning of song channel B
 	stx sn76chbb
 	stx sn76chb
-	ldx #chc		; beginning of song channel C
+	ldx song+2		; beginning of song channel C
 	stx sn76chcb
 	stx sn76chc
 	ldaa #0
@@ -4887,10 +4887,6 @@ sn76play subroutine
 	ldx #sn76chcb
 	jsr sn76procnote
 
-	ldaa #$0f
-	staa sn76ch2a
-	staa sn76ch3a
-
 	jsr setsnregs	; play note
 
 	ldx sn76tmpo	; delay one song tick
@@ -4903,30 +4899,9 @@ sn76play subroutine
 sn76procnote subroutine
 	stx sn76curchan			; store pointer to current channel
 	ldaa sn76chacn - sn76chab,x	; load note duration counter
-
-	psha
-	jsr txhexbyte
-	ldaa #" "
-	jsr txbyte
-	ldx #sn76curchan
-	jsr txhexword
-	ldaa #" "
-	jsr txbyte
-	ldx #sn76chacn
-	jsr txhexword
-	ldaa #$0d
-	jsr txbyte
-	ldaa #$0a
-	jsr txbyte
-;	rts
-	ldx sn76curchan
-	pula
-	adda #0
-
 	beq .1				; still playing current note?
 	deca					; yes, decrement note time
 	staa sn76chacn - sn76chab,x	; store note duration counter
-;	rts
 	ldaa #$f0
 	eora CPLDh
 	bra .3
@@ -4934,7 +4909,7 @@ sn76procnote subroutine
 .1	ldx sn76cha - sn76chab,x	; load pointer to current note
 
 	pshx
-	ldx #sn76curchan
+	ldx sn76curchan
 	jsr txhexword
 	ldaa #" "
 	jsr txbyte
@@ -4948,8 +4923,6 @@ sn76procnote subroutine
 	stx sn76temp
 	ldx #sn76temp
 	jsr txhexword
-;	ldaa #" "
-;	jsr txbyte
 	ldaa #$0d
 	jsr txbyte
 	ldaa #$0a
@@ -4957,7 +4930,6 @@ sn76procnote subroutine
 	pulx
 	xgdx
 	pulx
-;	rts
 
 	psha					; save note for later
 	pshb					; save attenuation for later
@@ -5076,7 +5048,353 @@ notes	dc.w 989,933	; A#1 B1
 	;      0   1   2   3   4   5   6   7   8   9  10  11
 	;      C  C#   D  D#   E   F  F#   G  G#   A  A#   B
 
-cha	dc.b 32,6
+song	dc.w $1800	; playback speed
+	dc.w chc
+	dc.w chb
+cha	dc.b 32,5
+	dc.b 35,4
+	dc.b 35,3
+	dc.b 32,4
+	dc.b  0,2
+	dc.b 32,2
+	dc.b 37,4
+	dc.b 32,4
+	dc.b 30,4
+
+	dc.b 32,5
+	dc.b 39,4
+	dc.b 39,3
+	dc.b 32,4
+	dc.b  0,2
+	dc.b 32,2
+	dc.b 40,4
+	dc.b 39,4
+	dc.b 35,4
+
+	dc.b 32,4
+	dc.b 39,4
+	dc.b 44,4
+	dc.b 32,2
+	dc.b  0,2
+	dc.b 30,4
+	dc.b  0,2
+	dc.b 30,2
+	dc.b 27,4
+	dc.b 34,4
+	dc.b 32,4
+
+	dc.b 32,6
+	dc.b  0,6
+
+	dc.b 32,5
+	dc.b 35,4
+	dc.b 35,3
+	dc.b 32,4
+	dc.b  0,2
+	dc.b 32,2
+	dc.b 37,4
+	dc.b 32,4
+	dc.b 30,4
+
+	dc.b 32,5
+	dc.b 39,4
+	dc.b 39,3
+	dc.b 32,4
+	dc.b  0,2
+	dc.b 32,2
+	dc.b 40,4
+	dc.b 39,4
+	dc.b 35,4
+
+	dc.b 32,4
+	dc.b 39,4
+	dc.b 44,4
+	dc.b 32,2
+	dc.b  0,2
+	dc.b 30,4
+	dc.b  0,2
+	dc.b 30,2
+	dc.b 27,4
+	dc.b 34,4
+	dc.b 32,4
+
+	dc.b 32,6
+	dc.b  0,6
+
+	dc.b 0,7
+	dc.b 0,7
+	dc.b 0,7
+	dc.b 0,7
+
+	dc.b 0,7
+	dc.b 0,7
+	dc.b 0,7
+	dc.b 0,7
+
+	dc.b 32,5
+	dc.b 35,4
+	dc.b 35,3
+	dc.b 32,4
+	dc.b  0,2
+	dc.b 32,2
+	dc.b 37,4
+	dc.b 32,4
+	dc.b 30,4
+
+	dc.b 32,5
+	dc.b 39,4
+	dc.b 39,3
+	dc.b 32,4
+	dc.b  0,2
+	dc.b 32,2
+	dc.b 40,4
+	dc.b 39,4
+	dc.b 35,4
+
+	dc.b 32,4
+	dc.b 39,4
+	dc.b 44,4
+	dc.b 32,2
+	dc.b  0,2
+	dc.b 30,4
+	dc.b  0,2
+	dc.b 30,2
+	dc.b 27,4
+	dc.b 34,4
+	dc.b 32,4
+
+	dc.b 32,6
+	dc.b  0,6
+
+	dc.b 32,5
+	dc.b 35,4
+	dc.b 35,3
+	dc.b 32,4
+	dc.b  0,2
+	dc.b 32,2
+	dc.b 37,4
+	dc.b 32,4
+	dc.b 30,4
+
+	dc.b 32,5
+	dc.b 39,4
+	dc.b 39,3
+	dc.b 32,4
+	dc.b  0,2
+	dc.b 32,2
+	dc.b 40,4
+	dc.b 39,4
+	dc.b 35,4
+
+	dc.b 32,4
+	dc.b 39,4
+	dc.b 44,4
+	dc.b 32,2
+	dc.b  0,2
+	dc.b 30,4
+	dc.b  0,2
+	dc.b 30,2
+	dc.b 27,4
+	dc.b 34,4
+	dc.b 32,4
+
+	dc.b 32,6
+	dc.b  0,6
+
+	dc.b 0,7
+
+	dc.b 255,255
+
+chb	dc.b 0,7
+	dc.b 0,7
+	dc.b 0,7
+	dc.b 0,7
+
+	dc.b 0,7
+	dc.b 0,7
+	dc.b 0,7
+	dc.b 0,7
+
+	dc.b 8,5
+	dc.b 20,4
+	dc.b 20,3
+	dc.b 6,4
+	dc.b 18,3
+	dc.b 3,4
+	dc.b 15,4
+	dc.b 6,4
+
+	dc.b 8,5
+	dc.b 20,3
+	dc.b 0,5
+	dc.b 3,2
+	dc.b 0,2
+	dc.b 3,4
+	dc.b 6,4
+	dc.b 8,4
+
+	dc.b 4,5
+	dc.b 16,4
+	dc.b 16,3
+	dc.b 6,4
+	dc.b 18,3
+	dc.b 15,4
+	dc.b 18,4
+	dc.b 8,4
+
+	dc.b 20,5
+	dc.b 0,5
+	dc.b 0,3
+	dc.b 18,3
+	dc.b 15,4
+	dc.b 13,4
+	dc.b 11,4
+
+	dc.b 8,5
+	dc.b 20,4
+	dc.b 20,3
+	dc.b 6,4
+	dc.b 18,3
+	dc.b 3,4
+	dc.b 15,4
+	dc.b 6,4
+
+	dc.b 8,5
+	dc.b 20,3
+	dc.b 0,5
+	dc.b 3,2
+	dc.b 0,2
+	dc.b 3,4
+	dc.b 6,4
+	dc.b 8,4
+
+	dc.b 4,5
+	dc.b 16,4
+	dc.b 16,3
+	dc.b 6,4
+	dc.b 18,3
+	dc.b 15,4
+	dc.b 18,4
+	dc.b 8,4
+
+	dc.b 20,5
+	dc.b 0,5
+	dc.b 0,3
+	dc.b 18,3
+	dc.b 15,4
+	dc.b 13,4
+	dc.b 11,4
+
+	dc.b 8,5
+	dc.b 20,4
+	dc.b 20,3
+	dc.b 6,4
+	dc.b 18,3
+	dc.b 3,4
+	dc.b 15,4
+	dc.b 6,4
+
+	dc.b 8,5
+	dc.b 20,3
+	dc.b 0,5
+	dc.b 3,2
+	dc.b 0,2
+	dc.b 3,4
+	dc.b 6,4
+	dc.b 8,4
+
+	dc.b 4,5
+	dc.b 16,4
+	dc.b 16,3
+	dc.b 6,4
+	dc.b 18,3
+	dc.b 15,4
+	dc.b 18,4
+	dc.b 8,4
+
+	dc.b 20,5
+	dc.b 0,5
+	dc.b 0,3
+	dc.b 18,3
+	dc.b 15,4
+	dc.b 13,4
+	dc.b 11,4
+
+	dc.b 8,5
+	dc.b 20,4
+	dc.b 20,3
+	dc.b 6,4
+	dc.b 18,3
+	dc.b 3,4
+	dc.b 15,4
+	dc.b 6,4
+
+	dc.b 8,5
+	dc.b 20,3
+	dc.b 0,5
+	dc.b 3,2
+	dc.b 0,2
+	dc.b 3,4
+	dc.b 6,4
+	dc.b 8,4
+
+	dc.b 4,5
+	dc.b 16,4
+	dc.b 16,3
+	dc.b 6,4
+	dc.b 18,3
+	dc.b 15,4
+	dc.b 18,4
+	dc.b 8,4
+
+	dc.b 20,5
+	dc.b 0,5
+	dc.b 0,3
+	dc.b 18,3
+	dc.b 15,4
+	dc.b 13,4
+	dc.b 11,4
+
+	dc.b 0,7
+
+	dc.b 254,255
+
+chc	dc.b 0,7
+	dc.b 0,7
+	dc.b 0,7
+	dc.b 0,7
+
+	dc.b 0,7
+	dc.b 0,7
+	dc.b 0,7
+	dc.b 0,7
+
+	dc.b 0,7
+	dc.b 0,7
+	dc.b 0,7
+	dc.b 0,7
+
+	dc.b 0,7
+	dc.b 0,7
+	dc.b 0,7
+	dc.b 0,7
+
+	dc.b 0,7
+	dc.b 0,7
+	dc.b 0,7
+	dc.b 0,7
+
+	dc.b 0,7
+	dc.b 0,7
+	dc.b 0,7
+	dc.b 0,7
+
+	dc.b 0,7
+
+	dc.b 254,255
+
+; cha
+	dc.b 32,6
 	dc.b 35,5
 	dc.b 32,3
 	dc.b  0,3
@@ -5102,88 +5420,37 @@ cha	dc.b 32,6
 	dc.b 27,5
 	dc.b 34,5
 	dc.b 32,7
-	dc.b 255,255
-	dc.b 0,6
-	dc.b 32,6
-	dc.b 35,5
-	dc.b 32,3
-	dc.b  0,3
-	dc.b 32,4
-	dc.b 255,255
 
-chb	dc.b 32,7
-	dc.b 0,7
-	dc.b 32,7
-	dc.b 0,7
-	dc.b 32,7
-	dc.b 0,7
-	dc.b 32,7
-	dc.b 0,7
-	dc.b 32,7
-	dc.b 0,7
-	dc.b 32,7
-	dc.b 0,7
-	dc.b 32,7
-	dc.b 0,7
-	dc.b 32,7
-	dc.b 0,7
-	dc.b 32,7
-	dc.b 0,7
-	dc.b 32,7
-	dc.b 0,7
-	dc.b 32,7
-	dc.b 0,7
-	dc.b 32,7
-	dc.b 0,7
-	dc.b 32,7
-	dc.b 0,7
-	dc.b 32,7
-	dc.b 0,7
-	dc.b 32,7
-	dc.b 0,7
-	dc.b 32,7
-	dc.b 0,7
-	dc.b 32,7
-	dc.b 0,7
-	dc.b 32,7
-	dc.b 0,7
-	dc.b 254,255
+;chb
+	dc.b 8,6
+	dc.b 20,5
+	dc.b 6,3
+	dc.b 18,3
+	dc.b 3,4
+	dc.b 15,4
+	dc.b 6,3
+	dc.b 8,5
+	dc.b 20,3
+	dc.b 0,3
+	dc.b 3,2
+	dc.b 0,2
+	dc.b 3,4
+	dc.b 6,3
+	dc.b 8,3
+	dc.b 4,4
+	dc.b 16,4
+	dc.b 6,3
+	dc.b 18,3
+	dc.b 15,4
+	dc.b 18,4
+	dc.b 8,4
+	dc.b 20,4
+	dc.b 0,6
+	dc.b 18,3
+	dc.b 15,4
+	dc.b 13,4
+	dc.b 11,4
 
-chc	dc.b 0,6
-	dc.b 50,6
-	dc.b 0,6
-	dc.b 50,6
-	dc.b 0,6
-	dc.b 50,6
-	dc.b 0,6
-	dc.b 0,6
-	dc.b 50,6
-	dc.b 0,6
-	dc.b 50,6
-	dc.b 0,6
-	dc.b 50,6
-	dc.b 0,6
-	dc.b 50,6
-	dc.b 0,6
-	dc.b 50,6
-	dc.b 0,6
-	dc.b 50,6
-	dc.b 0,6
-	dc.b 50,6
-	dc.b 0,6
-	dc.b 50,6
-	dc.b 0,6
-	dc.b 50,6
-	dc.b 0,6
-	dc.b 50,6
-	dc.b 0,6
-	dc.b 50,6
-	dc.b 0,6
-	dc.b 50,6
-	dc.b 0,6
-	dc.b 50,6
-	dc.b 0,6
-	dc.b 254,255
 
 sn76ch0	dc "Channel 0",$0d,$0a,$0
 sn76ch1	dc "Channel 1",$0d,$0a,$0
