@@ -35,6 +35,8 @@
 ;
 	    processor	HD6303
       
+BLINKY = 0
+
 END         equ $FF     ; Mark END OF TEXT      
 REG_DDRP1   equ $00     ; PORT 1 DDR
 REG_PORT1   equ $02     ; PORT 1 I/O Address
@@ -277,7 +279,10 @@ RESET	  subroutine
 	SEI            ;Disable interrupts
 
 	lds #$00ff		; temporary stack location
-;	jsr sn76off		; initialize sound chip so it does not make noise
+
+	IF BLINKY < 3
+	jsr sn76off		; initialize sound chip so it does not make noise
+	ENDIF
 
 	LDX #RAMLO		; fill RAM with a known pattern
 	LDAA	#$AA
@@ -325,7 +330,11 @@ DELBOOT DEX
         LDAA  #250
         STAA  BLINK_CT
         JSR   SERINIT   ;INIT INTERNAL UART, INTERNAL CLOCK, 115200 BAUD
+
+	IF BLINKY > 2
 	jsr sn76off		; initialize sound chip so it does not make noise
+	ENDIF
+
         JSR   IRQINIT   ;Populate IRQ Jump Table
 ;	cli	; enable interrupts
 
@@ -4822,13 +4831,18 @@ setsnregx	ldab #$80
 	addb #$10
 	ldaa sn76chna	; noise attenuation
 	aba
-;	bra setsn
+
+	IF BLINKY < 3
+	bra setsn
+	ENDIF
+	IF BLINKY > 2
 	jsr setsn
 	ldaa #$0d
 	jsr txbyte
 	ldaa #$0a
 	jsr txbyte
 	rts
+	ENDIF
 
 ; set two byte frequency pointed to by X for channel given in B
 setsnf
@@ -4852,13 +4866,17 @@ setsnf
 
 ; set one byte register given in A
 setsn	staa CPLDl
+
+	IF BLINKY > 2
 	jsr txhexbyte
 	ldaa #" "
 	jsr txbyte
+	ENDIF
+
 	ldaa SPREG
 	oraa #SN76SEL
 	staa SPREG
-	ldaa #dlypin
+	ldaa #$10		; delay between control pin changes
 .16	deca
 	bne .16
 	ldaa SPREG
@@ -4869,10 +4887,12 @@ setsn	staa CPLDl
 sn76play subroutine
 	jsr sn76init	; initialize regs
 
+	IF BLINKY > 0
 	ldaa #$0d
 	jsr txbyte
 	ldaa #$0a
 	jsr txbyte
+	ENDIF
 
 	ldaa #$0f
 	staa sn76chna	; noise attenuation
@@ -4891,51 +4911,63 @@ sn76play subroutine
 	staa sn76chacn
 	staa sn76chbcn
 	staa sn76chccn
-	staa CPLDh
 
+; process all notes 25us
+	IF BLINKY > 0
+	staa CPLDh
 .1	ldaa #$03
 	eora CPLDh
 	staa CPLDh
 	ldaa #"1"
-
-; process all notes 25us
-;.1
+	ELSE
+.1
+	ENDIF
 	ldx #sn76chab		; 90us
 	jsr sn76procnote
 
+	IF BLINKY > 0
 	ldaa #$06
 	eora CPLDh
 	staa CPLDh
 	ldaa #"2"
+	ENDIF
 
 	ldx #sn76chbb		; 80us
 	jsr sn76procnote
 
+	IF BLINKY > 0
 	ldaa #$0c
 	eora CPLDh
 	staa CPLDh
 	ldaa #"3"
+	ENDIF
 
 	ldx #sn76chcb		; 80us
 	jsr sn76procnote
 
+	IF BLINKY > 0
 	ldaa #$18
 	eora CPLDh
 	staa CPLDh
+	ENDIF
 
 	jsr setsnregs	; play note 700us
 
+	IF BLINKY > 0
 	ldaa #$30
 	eora CPLDh
 	staa CPLDh
+	ENDIF
 
 	ldx sn76tmpo	; delay one song tick at $1800 tempo = about 13.4ms
 .5	dex
 	bne .5
 
+	IF BLINKY > 0
 	ldaa #$20
 	eora CPLDh
 	staa CPLDh
+	ENDIF
 
 	bra .1	; complete song loop. at $1800 tempo = about 14.32ms
 
@@ -4961,14 +4993,17 @@ sn76procnote subroutine
 
 .1	ldx sn76cha - sn76chab,x	; load pointer to current note
 
+	IF BLINKY > 1
 	pshx
 	jsr txdbg1
+	ENDIF
 
-	ldd 0,x				; load note and duration
+	ldaa 0,x				; load note
+	staa sn76temp
 
-	std sn76temp
-	ldaa 2,x
-	staa sn76temp+2
+	IF BLINKY > 1
+	ldd 1,x				; get note duration and attenuation
+	std sn76temp + 1
 	ldx #sn76temp
 	jsr txhexword
 	ldaa sn76temp+2
@@ -4977,8 +5012,9 @@ sn76procnote subroutine
 	jsr txbyte
 	ldaa #$0a
 	jsr txbyte
-
 	pulx					; load pointer to current note
+	ENDIF
+
 	ldd 1,x				; get note duration and attenuation
 	ldx sn76curchan			; load pointer to beginnign of cur channel
 	deca					; adjust duration
@@ -5011,11 +5047,13 @@ dtsv	stab sn76chaad - sn76chab,x	; store note attenuation
 	cmpb #74
 	bcs procnote
 
+	IF BLINKY > 1
 	jsr txhexbyte
 	ldaa #$0d
 	jsr txbyte
 	ldaa #$0a
 	jsr txbyte
+	ENDIF
 
 	cmpb #253				; noise?
 	bcs noise				; yes
@@ -5059,10 +5097,14 @@ noise	ldaa sn76ch1a - sn76chab,x	; get note attenuation
 	bra .3
 	
 endsong	pulx		; remove extra return address from stack
+	IF BLINKY > 1
 	ldaa #0
 	staa CPLDh
+	ENDIF
+
 	jmp sn76off	; turn off audio and exit
 
+	IF BLINKY > 1
 txdbg1
 	jsr txbyte
 	ldaa #" "
@@ -5074,6 +5116,7 @@ txdbg1
 	jsr txbyte
 	ldx sn76temp
 	rts
+	ENDIF
 
 sn76chab	equ RAMLO + 0	; song begin ch 1
 sn76cha	equ RAMLO + 2	; current note pointer ch 1
@@ -5103,7 +5146,6 @@ sn76curchan	equ RAMLO + 29	; stores pointer to current channel
 sn76tmpo	equ RAMLO + 31	; song tempo
 sn76temp	equ RAMLO + 33	; temporary reg for testing
 
-dlypin	equ $10	; delay between control pin changes
 dlybyte	equ $04	; delay between bytes
 dlylong	equ 10	; long delay between frq changes
 

@@ -1,4 +1,4 @@
-song	dc.w $1800	; playback speed
+song	dc.w $2000	; playback speed
 	dc.b 7		; default attenuation - 1, 3, 7, 15
 	dc.w chc
 	dc.w chb
