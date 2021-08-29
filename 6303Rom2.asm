@@ -943,7 +943,16 @@ INHEXBX RTS
 ;; Call with start address in ADDR_HI & ADDR_LO
 ;;************************************************************************
 DUMP16  subroutine
-        LDAA  ADDR_HI    ;Print Address as 4 HEX chrs
+        JSR DUMP16A
+        LDD   ADDR_HI
+        ADDD  #16
+        STD   ADDR_HI
+        JSR INCHR		; if space - continue dumping. otherwise go back to main
+        CMPA #' 
+        BEQ DUMP16
+        RTS
+
+DUMP16A LDAA  ADDR_HI    ;Print Address as 4 HEX chrs
         JSR   OUTHEX   
         LDAA  ADDR_LO
         JSR   OUTHEX   
@@ -992,7 +1001,7 @@ DUMP165 JSR   OUTCHR     ;print it (or the .)
 DUMP256  subroutine
         LDAA  #16
         STAA  COUNT_A
-DMP2561 JSR   DUMP16
+DMP2561 JSR   DUMP16A
         LDD   ADDR_HI
         ADDD  #16
         STD   ADDR_HI
@@ -4548,8 +4557,8 @@ sn76init	jsr sn76off
 	ldx #$00ff
 	stx sn76tmpo	; playback speed
 
-;	ldx #$0004
-;	stx sn76chna
+	ldx #$0004
+	stx sn76chna
 
 	rts
 
@@ -4728,7 +4737,7 @@ sn74frqtest subroutine on entry B contains channel number
 	tba		; set channel
 	jsr setsnf	; play
 
-	ldaa #x3
+	ldaa #dlylong
 	jsr dly1
 
 	pshb		; save B for later
@@ -4750,7 +4759,7 @@ sn74frqtest subroutine on entry B contains channel number
 	tba		; set channel
 	jsr setsnf	; play
 
-	ldaa #x3
+	ldaa #dlylong
 	jsr dly1
 
 	ldx #$0004	; restore initial frequency
@@ -4792,25 +4801,25 @@ sn74scan subroutine on entry B contains channel number, A contains speed
 
 ; set SN registers to values pointed to by X
 setsnregs subroutine
-	ldx #sn76ch1f
+	ldx #sn76ch1f	; point to first channel
 setsnregx	ldab #$80
-.1	jsr setsnf
-	inx
-	inx
-	addb #$10
-	ldaa 0,X
+.1	jsr setsnf		; set frequency register
+	addb #$10		; address next register
+	ldaa 2,X		; get third byte
+	aba
+	jsr setsn		; set attenuation register
+	tba			; save B for later
+	ldab #$08		; add 8 to X
+	abx
+	tab			; restore B
+	addb #$10		; point to next sn76 register
+	cmpb #$e0		; is it noise source?
+	bne .1		; no, set next channel
+	ldaa sn76chns	; noise control
 	aba
 	jsr setsn
-	inx
 	addb #$10
-	cmpb #$e0
-	bne .1
-	ldaa 0,X	; noise control
-	aba
-	jsr setsn
-	inx
-	addb #$10
-	ldaa 0,X	; noise attenuation
+	ldaa sn76chna	; noise attenuation
 	aba
 	bra setsn
 ;	rts
@@ -4840,7 +4849,7 @@ setsn	staa CPLDl
 	ldaa SPREG
 	oraa #SN76SEL
 	staa SPREG
-	ldaa #x1
+	ldaa #dlypin
 .16	deca
 	bne .16
 	ldaa SPREG
@@ -4850,46 +4859,211 @@ setsn	staa CPLDl
 
 sn76play subroutine
 	jsr sn76init	; initialize regs
+	ldaa #$0f
+	staa sn76chna	; noise attenuation
 	ldx #$1000
 	stx sn76tmpo	; playback speed
-	ldx #cha	; beginning of song channel A
+	ldx #cha		; beginning of song channel A
+	stx sn76chab
 	stx sn76cha
-	ldx #chb	; beginning of song channel B
+	ldx #chb		; beginning of song channel B
+	stx sn76chbb
 	stx sn76chb
-	ldx #chc	; beginning of song channel C
+	ldx #chc		; beginning of song channel C
+	stx sn76chcb
 	stx sn76chc
+	ldaa #0
+	staa sn76chacn
+	staa sn76chbcn
+	staa sn76chccn
+	staa CPLDh
 
-.1	ldx sn76cha
-	ldab 0,x	; load note
-	beq pause	; pause note
-	cmpb #255	; end of song?
+.1	ldx #sn76chab
+	jsr sn76procnote
+
+	ldx #sn76chbb
+	jsr sn76procnote
+
+	ldx #sn76chcb
+	jsr sn76procnote
+
+	ldaa #$0f
+	staa sn76ch2a
+	staa sn76ch3a
+
+	jsr setsnregs	; play note
+
+	ldx sn76tmpo	; delay one song tick
+.5	dex
+	bne .5
+
+	bra .1
+
+; on entry X points to sn76ch{a,b,c}b - beginning of song for channel {a,b,c} is stored there
+sn76procnote subroutine
+	stx sn76curchan			; store pointer to current channel
+	ldaa sn76chacn - sn76chab,x	; load note duration counter
+
+	psha
+	jsr txhexbyte
+	ldaa #" "
+	jsr txbyte
+	ldx #sn76curchan
+	jsr txhexword
+	ldaa #" "
+	jsr txbyte
+	ldx #sn76chacn
+	jsr txhexword
+	ldaa #$0d
+	jsr txbyte
+	ldaa #$0a
+	jsr txbyte
+;	rts
+	ldx sn76curchan
+	pula
+	adda #0
+
+	beq .1				; still playing current note?
+	deca					; yes, decrement note time
+	staa sn76chacn - sn76chab,x	; store note duration counter
+;	rts
+	ldaa #$f0
+	eora CPLDh
+	bra .3
+
+.1	ldx sn76cha - sn76chab,x	; load pointer to current note
+
+	pshx
+	ldx #sn76curchan
+	jsr txhexword
+	ldaa #" "
+	jsr txbyte
+	pulx
+
+	ldd 0,x				; load note and duration
+
+	pshx
+	xgdx
+	pshx
+	stx sn76temp
+	ldx #sn76temp
+	jsr txhexword
+;	ldaa #" "
+;	jsr txbyte
+	ldaa #$0d
+	jsr txbyte
+	ldaa #$0a
+	jsr txbyte
+	pulx
+	xgdx
+	pulx
+;	rts
+
+	psha					; save note for later
+	pshb					; save attenuation for later
+	ldaa #1				; extract duration
+	andb #$0f
+	beq .5
+.6	asla
+	decb
+	bne .6
+.5	ldx sn76curchan			; load pointer to beginnign of cur channel
+	staa sn76chacn - sn76chab,x	; store note duration counter
+	pulb
+	tba					; extract attenuation
+	anda #$f0
+	lsra
+	lsra
+	lsra
+	lsra
+	staa sn76ch1a - sn76chab,x	; store note attenuation
+	ldd sn76cha - sn76chab,x	; load pointer to current note
+	xgdx
+	inx		; point to next note
+	inx
+	xgdx
+	std sn76cha - sn76chab,x	; store pointer to next note
+
+	pulb					; get current note
+	tba					; just to update flags
+	beq pause				; pause note
+	cmpb #255				; end of song?
+	beq endsong
+	cmpb #254	; loop?
 	bne .4
-	jmp sn76off	; turn off audio and exit
+;	ldx sn76curchan			; load pointer to beginnign of cur channel
+	ldd 0,x				; get address of beginning of notes for current channel
+	std sn76cha - sn76chab,x	; point to first note
+	bra .1				; start over, read the note
 .4	ldx #notes	; point to note table
+
+;	tba
+;	jsr txhexbyte
+;	ldaa #" "
+;	jsr txbyte
+
+	decb
+	aslb
 	abx		; add note offset
-	ldx 0,x	; get note value
-	stx sn76ch3f
-	ldaa #0	; turn on volume
+
+;	tba
+;	jsr txhexbyte
+;	ldaa #" "
+;	jsr txbyte
+;	jsr txhexword
+;	ldaa #$0d
+;	jsr txbyte
+;	ldaa #$0a
+;	jsr txbyte
+
+	ldd 0,x				; get note value
+	ldx sn76curchan			; get current channel pointer
+	std sn76ch1f-sn76chab,x	; store note value in appropriate channel's memory
+	ldaa #$f0
+	anda CPLDh
 	bra .3
 pause	ldaa #20	; delay to account for skipped code
 .2	deca
 	bne .2
 	ldaa #$0f
-.3	staa sn76ch3a	; set volume
+	staa sn76ch1a - sn76chab,x	; store note attenuation
+	oraa CPLDh
+.3	staa CPLDh
 
-	jsr setsnregs	; play note
+	rts
 
-	ldx sn76cha	; restore song pointer
-	inx		; point to note length
-	ldaa 0,x	; get length
-	inx		; point to next note
-	stx sn76cha
-.6	ldx sn76tmpo
-.5	dex
-	bne .5
-	deca
-	bne .6
-	bra .1
+endsong	pulx		; remove extra return address from stack
+	jmp sn76off	; turn off audio and exit
+
+sn76chab	equ RAMLO + 0	; song begin ch 1
+sn76cha	equ RAMLO + 2	; current note pointer ch 1
+sn76chacn	equ RAMLO + 4	; current note time ch 1
+sn76ch1f	equ RAMLO + 5	; sn76 registers - chan 1 frequency
+sn76ch1a	equ RAMLO + 7	; sn76 registers - chan 1 attenuation
+
+sn76chbb	equ RAMLO + 8	; song begin ch 2
+sn76chb	equ RAMLO + 10	; current note pointer ch 2
+sn76chbcn	equ RAMLO + 12	; current note time ch 2
+sn76ch2f	equ RAMLO + 13	; sn76 registers - chan 2 frequency
+sn76ch2a	equ RAMLO + 15	; sn76 registers - chan 2 attenuation
+
+sn76chcb	equ RAMLO + 16	; song begin ch 3
+sn76chc	equ RAMLO + 18	; current note pointer ch 3
+sn76chccn	equ RAMLO + 20	; current note time ch 3
+sn76ch3f	equ RAMLO + 21	; sn76 registers - chan 3 frequency
+sn76ch3a	equ RAMLO + 23	; sn76 registers - chan 3 attenuation
+
+sn76chns	equ RAMLO + 24	; sn76 registers - noise source
+sn76chna	equ RAMLO + 25	; sn76 registers - noise attenuation
+
+sn76curchan	equ RAMLO + 26	; stores pointer to current channel
+sn76tmpo	equ RAMLO + 28	; song tempo
+sn76temp	equ RAMLO + 30	; temporary reg for testing
+
+dlypin	equ $10	; delay between control pin changes
+dlybyte	equ $04	; delay between bytes
+dlylong	equ 10	; long delay between frq changes
+
 
 	;      
 notes	dc.w 989,933	; A#1 B1
@@ -4902,65 +5076,120 @@ notes	dc.w 989,933	; A#1 B1
 	;      0   1   2   3   4   5   6   7   8   9  10  11
 	;      C  C#   D  D#   E   F  F#   G  G#   A  A#   B
 
-cha	dc.b 32,64
-	dc.b 35,32
-	dc.b 32,8
-	dc.b  0,8
-	dc.b 32,16
-	dc.b 37,32
-	dc.b 32,32
-	dc.b 29,32
-	dc.b 32,32
-	dc.b 39,16
-	dc.b 32,8
-	dc.b  0,8
-	dc.b 32,16
-	dc.b 40,16
-	dc.b 39,16
-	dc.b 35,16
-	dc.b 32,16
-	dc.b 39,16
-	dc.b 44,16
-	dc.b 32,16
-	dc.b 29,8
-	dc.b  0,8
-	dc.b 29,16
-	dc.b 26,32
-	dc.b 34,
-	dc.b 32,128
-	dc.b 0,64
-	dc.b 32,64
-	dc.b 35,32
-	dc.b 32,8
-	dc.b  0,8
-	dc.b 32,16
+cha	dc.b 32,6
+	dc.b 35,5
+	dc.b 32,3
+	dc.b  0,3
+	dc.b 32,4
+	dc.b 37,5
+	dc.b 32,5
+	dc.b 30,5
+	dc.b 32,5
+	dc.b 39,4
+	dc.b 32,3
+	dc.b  0,3
+	dc.b 32,4
+	dc.b 40,4
+	dc.b 39,4
+	dc.b 35,4
+	dc.b 32,4
+	dc.b 39,4
+	dc.b 44,4
+	dc.b 32,4
+	dc.b 30,3
+	dc.b  0,3
+	dc.b 30,4
+	dc.b 27,5
+	dc.b 34,5
+	dc.b 32,7
+	dc.b 255,255
+	dc.b 0,6
+	dc.b 32,6
+	dc.b 35,5
+	dc.b 32,3
+	dc.b  0,3
+	dc.b 32,4
 	dc.b 255,255
 
-chb
-chc
+chb	dc.b 32,7
+	dc.b 0,7
+	dc.b 32,7
+	dc.b 0,7
+	dc.b 32,7
+	dc.b 0,7
+	dc.b 32,7
+	dc.b 0,7
+	dc.b 32,7
+	dc.b 0,7
+	dc.b 32,7
+	dc.b 0,7
+	dc.b 32,7
+	dc.b 0,7
+	dc.b 32,7
+	dc.b 0,7
+	dc.b 32,7
+	dc.b 0,7
+	dc.b 32,7
+	dc.b 0,7
+	dc.b 32,7
+	dc.b 0,7
+	dc.b 32,7
+	dc.b 0,7
+	dc.b 32,7
+	dc.b 0,7
+	dc.b 32,7
+	dc.b 0,7
+	dc.b 32,7
+	dc.b 0,7
+	dc.b 32,7
+	dc.b 0,7
+	dc.b 32,7
+	dc.b 0,7
+	dc.b 32,7
+	dc.b 0,7
+	dc.b 254,255
+
+chc	dc.b 0,6
+	dc.b 50,6
+	dc.b 0,6
+	dc.b 50,6
+	dc.b 0,6
+	dc.b 50,6
+	dc.b 0,6
+	dc.b 0,6
+	dc.b 50,6
+	dc.b 0,6
+	dc.b 50,6
+	dc.b 0,6
+	dc.b 50,6
+	dc.b 0,6
+	dc.b 50,6
+	dc.b 0,6
+	dc.b 50,6
+	dc.b 0,6
+	dc.b 50,6
+	dc.b 0,6
+	dc.b 50,6
+	dc.b 0,6
+	dc.b 50,6
+	dc.b 0,6
+	dc.b 50,6
+	dc.b 0,6
+	dc.b 50,6
+	dc.b 0,6
+	dc.b 50,6
+	dc.b 0,6
+	dc.b 50,6
+	dc.b 0,6
+	dc.b 50,6
+	dc.b 0,6
+	dc.b 254,255
 
 sn76ch0	dc "Channel 0",$0d,$0a,$0
 sn76ch1	dc "Channel 1",$0d,$0a,$0
 sn76ch2	dc "Channel 2",$0d,$0a,$0
 sn76ch3	dc "Noise",$0d,$0a,$0
 sn76vol	dc "Volume",$0d,$0a,$0
-
-sn76ch1f	equ RAMLO
-sn76ch1a	equ RAMLO + 2
-sn76ch2f	equ RAMLO + 3
-sn76ch2a	equ RAMLO + 5
-sn76ch3f	equ RAMLO + 6
-sn76ch3a	equ RAMLO + 8
-sn76chns	equ RAMLO + 9
-sn76chna	equ RAMLO + 10
-sn76cha	equ RAMLO + 11
-sn76chb	equ RAMLO + 13
-sn76chc	equ RAMLO + 15
-sn76tmpo	equ RAMLO + 17
-
-x1	equ $10	; delay between control pin changes
-x2	equ $04	; delay between bytes
-x3	equ 10	; long delay between frq changes
 
 r6551	subroutine
 r6551	
