@@ -54,19 +54,20 @@ extop	equ $c000	; external RAM end
 ;CRA	equ hd6321 + 1
 ;CRB	equ hd6321 + 3
 
-AYSEL		equ $11e0	; select AY chip, $11e0-$11e1
-SNDSEL	equ $11e2	; speccy sound IF $11e2
-MIC		equ $02	; microphone sound input (tape) is on D0, sound output register is on D1
-HD21IRQ	equ $11e3	; HD6321 IRQ lines
-; HD6321 chip $11e4 - 11e7
-hd6321	equ $11e4	; HD6321 PIA
+AYSEL		equ $11d0	; select AY chip, $11d0-$11d1
+SNDSEL	equ $11d2	; speccy sound IF $11d2
+MIC		equ $02	; microphone sound input (tape) is on D0,
+				; sound output register is on D1
+AUDIOSTAT	equ $11d3	; HD6321 IRQ lines
+; HD6321 or W6522 chip $11c0 - 11cf
+hd6321	equ $11c0	; HD6321 PIA
 PRA		equ hd6321
 PRB		equ hd6321 + 2
 DDRA		equ hd6321
 DDRB		equ hd6321 + 2
 CRA		equ hd6321 + 1
 CRB		equ hd6321 + 3
-EXTSEL	equ $11e8	; external select connector $11e8 - 11ef
+EXTSEL	equ $11d8	; external select connector $11e4 - 11ef
 RAMB4		equ $11f8	; low ram ($4000-$7FFF) bank mapping
 RAMB8		equ $11f9	; high  ram ($8000-$BFFF) bank mapping
 RAMBc		equ $11fa	; ram in ROM area($C000-$FFFF) bank mapping
@@ -795,10 +796,10 @@ aytest subroutine
 ay38910
 	ldx #ayinit
 .2	ldaa	0,x
-	staa AYSEL+1
+	staa AYSEL
 	inx
 	ldaa	0,x
-	staa AYSEL
+	staa AYSEL+1
 	inx
 	cpx #ayend
 	bne .2
@@ -827,21 +828,21 @@ ayend equ .
 
 ampltest
 	ldaa #$08		; channel A level
-	staa AYSEL+1
-	ldaa #$00		; set to off
 	staa AYSEL
+	ldaa #$00		; set to off
+	staa AYSEL+1
 	ldaa #$0a		; channel C level
-	staa AYSEL+1
-	ldaa #$00		; set to off
 	staa AYSEL
-	ldaa #$09		; channel B level
+	ldaa #$00		; set to off
 	staa AYSEL+1
+	ldaa #$09		; channel B level
+	staa AYSEL
 	ldx #sayamplval
 	jsr txstring
 	ldab #$04
 .7	ldaa #$10
 .4	deca			; first decrement level
-	staa AYSEL
+	staa AYSEL+1
 	psha
 	jsr txhex
 	ldaa #$0d
@@ -853,7 +854,7 @@ ampltest
 	cmpa #$00
 	bne .4		; next level if not 0 yet
 .6	inca			; otherwise start incrementing
-	staa AYSEL
+	staa AYSEL+1
 	psha
 	jsr txhex
 	ldaa #$0d
@@ -868,33 +869,33 @@ ampltest
 	bne .7		; do it 4 times
 	jsr txcrlf
 	ldaa #$09		; channel B level
-	staa AYSEL+1
-	ldaa #$00		; set to off
 	staa AYSEL
+	ldaa #$00		; set to off
+	staa AYSEL+1
 	rts
 
 ; test envelope
 ; set each envelope in turn and wait
 envtest
 	ldaa #$08		; channel A level
-	staa AYSEL+1
-	ldaa #$00		; set to off
 	staa AYSEL
+	ldaa #$00		; set to off
+	staa AYSEL+1
 	ldaa #$09		; channel B level
-	staa AYSEL+1
+	staa AYSEL
 	ldaa #$1f		; set to 'envelope controlled'
-	staa AYSEL
+	staa AYSEL+1
 	ldaa #$0a		; channel C level
-	staa AYSEL+1
-	ldaa #$00		; set to off
 	staa AYSEL
-	ldaa #$0d		; select envelope register
+	ldaa #$00		; set to off
 	staa AYSEL+1
+	ldaa #$0d		; select envelope register
+	staa AYSEL
 	ldx #sayenvnum
 	jsr txstring
 	ldab #$40
 .12	ldaa #$00		; start with envelope #0
-	staa AYSEL
+	staa AYSEL+1
 	jsr txhex
 	ldaa #$0d
 	jsr txbyte
@@ -905,7 +906,7 @@ envtest
 	bne .12
 	ldab #$40
 .13	ldaa #$04		; then envelope #$04
-	staa AYSEL
+	staa AYSEL+1
 	jsr txhex
 	ldaa #$0d
 	jsr txbyte
@@ -915,7 +916,7 @@ envtest
 	decb
 	bne .13
 	ldaa #$08		; then envelope #$08 - $0f
-.11	staa AYSEL
+.11	staa AYSEL+1
 	psha
 	jsr txhex
 	ldaa #$0d
@@ -932,9 +933,9 @@ envtest
 	bne .11
 	jsr txcrlf
 	ldaa #$09		; channel B level
-	staa AYSEL+1
-	ldaa #$00		; set to off
 	staa AYSEL
+	ldaa #$00		; set to off
+	staa AYSEL+1
 	rts
 
 

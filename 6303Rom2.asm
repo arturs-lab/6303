@@ -76,20 +76,20 @@ DEL125MS	equ $5200	; delay 125 ms originally 21937
 DELMAX	equ $FFFF	; maximim delay, approx 384ms
 DELBEEP	equ 18934	; beep delay orig $300C=12300
 
-AYSEL		equ $11e0	; select AY chip, $11e0-$11e1
-SNDSEL	equ $11e2	; speccy sound IF $11e2
+AYSEL		equ $11d0	; select AY chip, $11d0-$11d1
+SNDSEL	equ $11d2	; speccy sound IF $11d2
 MIC		equ $02	; microphone sound input (tape) is on D0,
 				; sound output register is on D1
-HD21IRQ	equ $11e3	; HD6321 IRQ lines
-; HD6321 chip $11e4 - 11e7
-hd6321	equ $11e4	; HD6321 PIA
+AUDIOSTAT	equ $11d3	; HD6321 IRQ lines
+; HD6321 or W6522 chip $11c0 - 11cf
+hd6321	equ $11c0	; HD6321 PIA
 PRA		equ hd6321
 PRB		equ hd6321 + 2
 DDRA		equ hd6321
 DDRB		equ hd6321 + 2
 CRA		equ hd6321 + 1
 CRB		equ hd6321 + 3
-EXTSEL	equ $11e8	; external select connector $11e8 - 11ef
+EXTSEL	equ $11d8	; external select connector $11e4 - 11ef
 RAMB4		equ $11f8	; low ram ($4000-$7FFF) bank mapping
 RAMB8		equ $11f9	; high  ram ($8000-$BFFF) bank mapping
 RAMBc		equ $11fa	; ram in ROM area($C000-$FFFF) bank mapping
@@ -4001,7 +4001,7 @@ aytest
 	pulx
 	rts
 
-ymbase	equ $11ec	; EXTSEL external IO triggered in range $11ec - $11ef
+ymbase	equ $11d8	; EXTSEL external IO triggered in range $11d4 - $11df
 
 ymz284
 	pshx
