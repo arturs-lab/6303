@@ -1,6 +1,14 @@
     org    $0000
             
 ;   ROM01.ASM 	(HD6303YCP Microprocessor)
+;   V2.2a  12/6/20  AMJ added 'E' to write to EEPROM
+;                       updated '<' and '>' to use correctly formatted Intel hex records
+;                          re-added ':' as a shorthand menu option to enter hex record
+;   V2.2   12/5/20  AMJ added "X" to copy memory area from address to another
+;                       changed 'g' to use address from GOPTR memory location instead of
+;                          hardcoded value
+;                       changed 'G' to save target address to GOPTR so next time can 
+;                          repeat call by pressing 'g' without entering address
 ;   V2.1f  12/31/19 AMJ added "Q" to PAUSE to break out of running program
 ;				added continous dump256 if space pressed, exit to main on other key
 ;				replaced hardcoded values in code with equ 
@@ -54,7 +62,7 @@ REG_T2CNT   equ $1D     ;TIMER2 COUNTER REG.
 ; AMJ: 20191230 code cleanup and changes to make this work with my board
 ; my board has following memory map:
 ; $0000 - $1fff IO ports
-; $2000 - $3fff space left for additional RAM, maybe video
+; $2000 - $3fff 8K space left for additional RAM, maybe video
 ; $4000 - $bfff RAM, 32K - 2x 16K banks switched among 8 available banks
 ; $c000 - $ffff ROM, 16K
 ; moved everything from $220 address range to my location of RAM
@@ -62,15 +70,16 @@ REG_T2CNT   equ $1D     ;TIMER2 COUNTER REG.
 ; also, I'm running at 7.5MHz clock, so delay loop and timing vars had to be changed too
 
 ; VARIOUS DELAYS
-DEL20MS	equ 9407	; 20 ms delay originally 3510 dec.
-DEL1MS	equ 175	; 1 ms delay originally 175
-DEL125MS	equ 21937	; delay 125 ms originally 21937
+DEL20MS	equ $2400	; 20 ms delay originally 3510 dec.
+DEL1MS	equ $a6	; 1 ms delay originally 175
+DEL125MS	equ $5200	; delay 125 ms originally 21937
 DELMAX	equ $FFFF	; maximim delay, approx 384ms
 DELBEEP	equ 18934	; beep delay orig $300C=12300
 
 AYSEL		equ $11e0	; select AY chip, $11e0-$11e1
 SNDSEL	equ $11e2	; speccy sound IF $11e2
-MIC		equ $02	; microphone sound input (tape) is on D0, sound output register is on D1
+MIC		equ $02	; microphone sound input (tape) is on D0,
+				; sound output register is on D1
 HD21IRQ	equ $11e3	; HD6321 IRQ lines
 ; HD6321 chip $11e4 - 11e7
 hd6321	equ $11e4	; HD6321 PIA
@@ -84,7 +93,8 @@ EXTSEL	equ $11e8	; external select connector $11e8 - 11ef
 RAMB4		equ $11f8	; low ram ($4000-$7FFF) bank mapping
 RAMB8		equ $11f9	; high  ram ($8000-$BFFF) bank mapping
 RAMBc		equ $11fa	; ram in ROM area($C000-$FFFF) bank mapping
-ROMB		equ $11fb	; bit 0: ROM bank, bit 1: select ROM or RAMBc
+ROMB		equ $11fb	; bit 0: ROM bank 0 or 1
+				; bit 1: select ROM or RAM page indicated by RAMBc
 CPLDl		equ $11fc	; CPLD extra port low
 CPLDh		equ $11fd	; CPLD extra port high
 LED		equ $11fe	; LED address
@@ -99,6 +109,7 @@ GOADDR	equ RAMLO + $1000	; address for "go" command $2000 originally
 ;SPTOP		equ RAMHI - 16	; = $BFF0 SP stack top
 ;MEMENDI	equ RAMHI - 4097	; = $AFFF
 
+; moved to under $8000 so that second bank of RAM can be switched around
 SPINIT	equ RAMB2 - 4027	; = $7045 initial value of SP in BASIC
 XINIT		equ RAMB2 - 3969	; = $707F initial value of X in BASIC
 SPTOP		equ RAMB2 - 16	; = $7FF0 SP stack top
@@ -110,6 +121,7 @@ VARADDR	equ VARPAGE << 8	; needed later for other definitions
 
 ;**** INTERNAL RAM System Variables *****************************
 ;** The HD6303YCP has 256 bytes of internal RAM at $0040-$013F **
+;** The HD6303RP has 128 bytes of internal RAM at $0080-$00FF **
             org	   RAMLO + $40        ; Start of Internal RAM + $40	    
 TX_BYTE     equ    RAMLO + $40          ; Byte to send
 RX_BYTE     equ    RAMLO + $41          ; Byte recieved
@@ -168,15 +180,17 @@ DREG_SPL    equ    RAMLO + $F5
 DREG_PCH    equ    RAMLO + $F6          ;Program Counter
 DREG_PCL    equ    RAMLO + $F7
 DREG_F      equ    RAMLO + $F8          ;Flags
+GOPTR		equ	 RAMLO + $FE
 
 ; *************************************************************************
 ;   MicroBASIC Constants      $0220-$0390
 ; *************************************************************************
-MAXLIN      equ    $72	 ; dc.b 72     ; Max Line Length
+MAXLIN      equ    $72	 ; dc.b $72     ; Max Line Length
 BACKSP      equ    $7F	 ; dc.b $7F    ;// EMK puTTY backspace = 127
 CANCEL      equ    $1B	 ; dc.b $1B    ;// EMK Use ESC as cancel
 
-;  **** ORG $0220  *** MEMORY VARIABLES *****     
+;  **** ORG $4220  *** MEMORY VARIABLES *****     
+            ORG VARADDR
 INDEX1      equ    VARADDR + $20	 
 INDEX2      equ    VARADDR + $22	  
 INDEX3      equ    VARADDR + $24	  
@@ -256,7 +270,6 @@ tsavetim	equ tsavep2 + 2		; leader timers
 
 	    org   $c000	    ;Start of ROM $8000 (originally)
 
-GOPTR	dc.w #GOADDR	; code into ROM destination of GOADDR. Once ROM is swapped into RAM, this value can be changed on the fly
 RESET	  subroutine
 	SEI            ;Disable interrupts
 	LDX #RAMLO		; fill RAM with a known pattern
@@ -274,16 +287,21 @@ RESET	  subroutine
         LDAA  #$01    
         STAA  FLAGS_A  ; Echo Flag ON 
 
+	LDX   #RAMLO + $1000	; initialize 'g' jump address to RAMLO + $1000
+	STX   GOPTR
+;;
 ;        LDAA  #$00    ; this was used for testing of delay timing
 ;        staa OUTREG
 ;        LDAA  #$01    
 ;        staa OUTREG
+;;
 	LDX   #DEL20MS    ; delay approx 20ms
 DELBOOT DEX
         BNE   DELBOOT       
+;;
 ;        LDAA  #$00    
 ;        staa OUTREG
-        
+;;        
         LDAA  #$F7
         STAA  REG_DDRP2       ;Set Port2 to OUTPUT (except P2.3=Input for RXD)
 ;        LDAA	#$FF        
@@ -367,6 +385,7 @@ IS_G    CMPA  #'G       ;**** GO Command ****
         LDX   #MSGNL    ;Send Newline
         JSR   PUTS
         LDX   ADDR_HI
+        STX   GOPTR	; store entered address in GOPTR so next time can just press 'g' and repeat call
         JSR   0,X
         JMP   MENUXOK   ;Print OK and resume main loop
         
@@ -502,12 +521,19 @@ IS_PCT  CMPA  #'%       ;**** Start/Stop 10ms Timer ****
         
 ;IS_IHR  CMPA  #$3A       ;**** Get IHEX Rec (no echo) ****
 IS_IHR  CMPA  #'>       ;**** Get IHEX Rec (no echo) ****
-        BNE   IS_SIHX
+        BNE   IS_IHR2
         JSR   GETIHEX
         LDX   #MSGNL
         JSR   PUTS      ;Newline
         JMP   LOOP1
         
+IS_IHR2 CMPA  #':       ;**** Get IHEX Rec (no echo) ****
+        BNE   IS_SIHX
+        JSR   GETIHEX2
+        LDX   #MSGNL
+        JSR   PUTS      ;Newline
+        JMP   LOOP1
+
 ;IS_SIHX CMPA  #$3B      ; is it a ";"
 IS_SIHX CMPA  #'<      ; is it a ";"
         BNE   IS_X
@@ -515,7 +541,7 @@ IS_SIHX CMPA  #'<      ; is it a ";"
         JMP   LOOP1      ;No response just continue
         
 IS_X    CMPA  #'X       ;**** Attention Command - Response = "$$$" ****
-        BNE   IS_AT
+        BNE   IS_E
         JSR   CPYMEM      ;Copy memory from range to range
         LDX   #MSGNL
         JSR   PUTS      ;Newline
@@ -523,6 +549,15 @@ IS_X    CMPA  #'X       ;**** Attention Command - Response = "$$$" ****
         JSR   PUTS      ; Print OK
         JMP   LOOP1        
         
+IS_E    CMPA  #'E       ;**** Attention Command - Response = "$$$" ****
+        BNE   IS_AT
+        JSR   WREEPROM
+        LDX   #MSGNL
+        JSR   PUTS      ;Newline
+        LDX   #MSGOK
+        JSR   PUTS      ; Print OK
+        JMP   LOOP1        
+
 IS_AT   CMPA  #'@       ;**** Attention Command - Response = "$$$" ****
         BNE   MENUX
         LDX   #MSGATNRSP
@@ -729,8 +764,12 @@ INCHR	  LDAA  REG_TRCSR1
 ;;************************************************************************
 INCHRE  subroutine
         JSR   INCHR
+        LDAA  FLAGS_A
+        ANDA  #$01        ;Is ECHO ON?
+        BEQ   INCHRE1     ;NO = Skip OUTCHR
+        LDAA  RX_BYTE        
         JSR   OUTCHR
-        LDAA  RX_BYTE
+INCHRE1 LDAA  RX_BYTE
         RTS
 ;******************************************************************
 ; INCHRIF  Input a character if available
@@ -957,6 +996,11 @@ GETIHEX  subroutine
         STAA  COUNT_A    ;Byte Counter
         STAA  FLAGS_A    ;Echo Off
              
+        JSR   INCHRE     ;GET START CODE
+        CMPA  #':
+        BNE   GIHERR     ;If not ':' goto exit
+
+GETIHEX3
         JSR   INHEXB     ;GET RECORD LENGTH
         BCS   GIHERR     ;If non hex goto exit
         STAA  REC_LEN    ;Save REC LEN
@@ -986,7 +1030,7 @@ NEXTIHB JSR   INHEXB     ;Get Data Byte
         CMPA  #00
         BEQ   GIHCSUM    ; Done? - Calculate Checksum
         STAA  COUNT_A    ; Update Counter
-        JMP   NEXTIHB    ; Get next byte
+        BRA   NEXTIHB    ; Get next byte
 
 GIHCSUM JSR   INHEXB     ; GET INPUT CHECKSUM 
         BCS   GIHERR     ;If non hex goto exit
@@ -994,14 +1038,11 @@ GIHCSUM JSR   INHEXB     ; GET INPUT CHECKSUM
         LDAB  COUNT_C    ; Get Checksum counter ->B
         LDAA  REC_LEN    ; Get Rec Len 
         ABA              ; Add Total  B+A->A
-        TAB              ; Save New Total A->B
-        LDAA  REC_TYPE   ; Get Rec Type
+        LDAB  REC_TYPE   ; Get Rec Type
         ABA              ; Add Total  B+A->A
-        TAB              ; Save New Total A->B
-        LDAA  ADDR_HI    ; Address HI
+        LDAB  ADDR_HI    ; Address HI
         ABA              ; Add Total  B+A->A
-        TAB              ; Save New Total A->B
-        LDAA  ADDR_LO   ; Address LO
+        LDAB  ADDR_LO   ; Address LO
         ABA              ; Add Total
         NEGA             ; 2's complement 
         STAA  COUNT_C   ; Save in Checksum counter
@@ -1010,13 +1051,13 @@ GIHCSUM JSR   INHEXB     ; GET INPUT CHECKSUM
         CMPB  REC_CSUM  ; Get Input Checksum
         BNE   GIHERR2   ; Checksum Error
                                   ; Otherwise 
-        JMP   GIHEXIT  ; Good Record - Exit
+        BRA   GIHEXIT  ; Good Record - Exit
              
 GIHERR  LDAA  #'?       ; Input Error (NON-HEX data)
-        JMP   GIHEXX1
+        BRA   GIHEXX1
       
 GIHERR2 LDAA  #'E      ; Checksum Error
-        JMP   GIHEXX1 
+        BRA   GIHEXX1 
              
 GIHEXIT LDAA  #'*
 GIHEXX1 JSR   OUTCHR
@@ -1024,6 +1065,14 @@ GIHEXX1 JSR   OUTCHR
         STAA  FLAGS_A   ; Turn ECHO BACK ON
         RTS
         
+GETIHEX2                 ; coming here from ":" monitor command. 
+                         ; Bypass expecting to receive ":" as part of Intel Hex record
+        LDAA  #00     
+        STAA  COUNT_C    ;Clear Checksum
+        STAA  COUNT_A    ;Byte Counter
+        STAA  FLAGS_A    ;Echo Off
+        JMP   GETIHEX3
+
  ;******************************************************************
 ; SNDIHXRC  the ';' OR '<' command
 ; Get Length and start address and send an iHEX record with checksum
@@ -1033,14 +1082,21 @@ SNDIHXR CLRA
         STAA  COUNT_A  ;Byte Counter
         STAA  REC_TYPE ;Record Type always = 0
 
-        LDAA  FLAGS_A
-        ANDA  #$FE 
-        STAA  FLAGS_A  ;Set ECHO OFF
-             
+        LDX   #MSGLENB
+        JSR   PUTS      ;Enter 1 byte length
+
         JSR   INHEXB   ;GET RECORD LENGTH
         BCS   SIHRERR  ; Goto ERROR Exit
         STAA  REC_LEN  ; Save in REC_LEN
         STAA  COUNT_A  ; Save in Byte Counter
+
+        LDAA  #13
+        JSR   OUTCHR     ;Print CRLF
+        LDAA  #10
+        JSR   OUTCHR
+
+        LDX   #MSGADDR
+        JSR   PUTS      ;Enter 2 byte address
 
         JSR   INHEXB   ;GET Start Address HI
         BCS   SIHRERR  ; Goto ERROR Exit
@@ -1049,9 +1105,20 @@ SNDIHXR CLRA
         BCS   SIHRERR  ; Goto ERROR Exit
         STAA  ADDR_LO
                   
-        LDAA  #$20
-        JSR   OUTCHR   ;Send Space to Indicate good len & address.
+;        LDAA  #$20
+;        JSR   OUTCHR   ;Send Space to Indicate good len & address.
                           
+        LDAA  #13
+        JSR   OUTCHR     ;Print CRLF
+        LDAA  #10
+        JSR   OUTCHR
+
+        LDAA  FLAGS_A
+        ANDA  #$FE 
+        STAA  FLAGS_A  ;Set ECHO OFF
+
+        JSR   SIHHDR
+
         LDX   ADDR_HI  ;Address->X
 NXTSHXB LDAA  0,X      ;Get Data from memory  
         JSR   OUTHEX   ;Send as 2 hex chars
@@ -1062,24 +1129,21 @@ NXTSHXB LDAA  0,X      ;Get Data from memory
              
         DEC   COUNT_A  ; Decrement Byte Counter
         BEQ   SIHCSUM  ; Done? - Calculate Checksum
-        JMP   NXTSHXB  ; Send next byte
+        BRA   NXTSHXB  ; Send next byte
 
 SIHCSUM LDAB  COUNT_C    ; Get Checksum counter in B
         LDAA  REC_LEN    ; Get Rec Len in A 
         ABA              ; Add Total
-        TAB              ; Save New Total in B
-        LDAA  REC_TYPE   ; Get Rec Type
+        LDAB  REC_TYPE   ; Get Rec Type
         ABA              ; Add Total
-        TAB              ; Save New Total in B
-        LDAA  ADDR_HI    ; Address HI
+        LDAB  ADDR_HI    ; Address HI
         ABA              ; Add Total
-        TAB              ; Save New Total
-        LDAA  ADDR_LO    ; Address LO
+        LDAB  ADDR_LO    ; Address LO
         ABA              ; Add Total
         NEGA             ; 2's complement 
         STAA  COUNT_C    ; Save in Checksum counter
         JSR   OUTHEX     ; Send Checksum
-        JMP   SIHREX     ; Exit
+        BRA   SIHREX     ; Exit
              
 SIHRERR LDAA  #'?         ; Input Error (NON-HEX data)
         JSR   OUTCHR 
@@ -1090,6 +1154,23 @@ SIHREX  LDX   #MSGNL       ; send CR & LF
         LDAA  FLAGS_A
         ORAA  #$01
         STAA  FLAGS_A     ;Set ECHO ON
+        RTS
+
+SIHHDR  LDAA  #':     ;Send start code  
+        JSR   OUTCHR
+
+        LDAA  REC_LEN  ;Get record length  
+        JSR   OUTHEX   ;Send as 2 hex chars
+
+        LDAA  ADDR_HI  ;Get address high byte 
+        JSR   OUTHEX   ;Send as 2 hex chars
+
+        LDAA  ADDR_LO  ;Get address low byte 
+        JSR   OUTHEX   ;Send as 2 hex chars
+
+        LDAA  REC_TYPE ;Get record type  
+        JSR   OUTHEX   ;Send as 2 hex chars
+
         RTS
 
 ;;************************************************************************
@@ -1279,6 +1360,95 @@ FILLEX  RTS
        
 
 ;;************************************************************************
+;; WREEPROM
+;; Write to EEPROM
+;;************************************************************************
+WREEPROM subroutine
+
+WREECNT equ   WREE99 - WREE00
+
+; get address in RAM to which to relocate code below
+        LDX   #MSGRELOC   ;"Enter address in RAM with $"
+        JSR   PUTS
+        LDAA  #WREECNT
+        JSR   OUTHEX
+        LDX   #MSGRELOC2   ;" bytes free:"
+        JSR   PUTS
+        JSR   INHEXB
+        BCC   WREE04
+        RTS
+WREE04  STAA  DISADD2     ; store it in ADDR_HI for relocation routine
+        STAA  LINECT      ; and in LINECT for later jump to relocated code
+        JSR   INHEXB
+        BCC   WREE05
+        RTS
+WREE05  STAA  DISADD2+1
+        STAA  LINECT+1
+
+        LDAB  #WREECNT         ; get count of bytes to relocate
+        LDX   #WREE00          ; source starting address
+        STX   DISADD1         ; store it in scratchpad memory
+WREE01  LDX   DISADD1         ; get source address
+        LDAA  0,X
+        INX
+        STX   DISADD1
+        LDX   DISADD2         ; get destination address
+        STAA  0,X
+        INX
+        STX   DISADD2         ; increment source and dest addr
+        DECB                  ; decrement byte count
+        BNE   WREE01
+
+        LDX   #MSGSTART   ;Enter Start Address:
+        JSR   PUTS
+        JSR   INHEXB
+        BCS   WREEEX
+        STAA  ADDR_HI
+        JSR   INHEXB
+        BCS   WREEEX
+        STAA  ADDR_LO
+        
+        LDX   #MSGENDAD   ;Enter End Address:
+        JSR   PUTS
+        JSR   INHEXB
+        BCS   WREEEX
+        STAA  DISADD1
+        JSR   INHEXB
+        BCS   WREEEX 
+        STAA  DISADD1+1
+
+        LDX   #MSGDST   ;Enter Destination Address:
+        JSR   PUTS
+        JSR   INHEXB
+        BCS   WREEEX
+        STAA  DISADD2
+        JSR   INHEXB
+        BCS   WREEEX
+        STAA  DISADD2+1
+
+        LDX   LINECT     ; get code relocation address obtained earlier and jump to it
+        JMP   0,X
+
+; CODE BELOW HAS TO BE RELOCATABLE! NO JMPs! ONLY RELATIVE LOOPS!
+WREE00  LDX   ADDR_HI    ;Get address
+WREE02  LDAA  0,X        ;get the Value
+        LDX   DISADD2
+        STAA  0,X        ;store value in destination
+WREE03  CMPA  0,X
+        BNE   WREE03
+        INX
+        STX   DISADD2
+        LDX   ADDR_HI
+        CPX   DISADD1    ;Match on End Adress?
+        BEQ   WREEEX     ;Exit
+        INX
+        STX   ADDR_HI
+        BRA   WREE02
+WREEEX  RTS
+
+WREE99
+
+;;************************************************************************
 ;; CPYMEM
 ;; Copy memory from given range to range starting at addr
 ;;************************************************************************
@@ -1286,28 +1456,28 @@ CPYMEM  subroutine
         LDX   #MSGSTART   ;Enter Start Address:
         JSR   PUTS
         JSR   INHEXB
-        BCS   FILLEX
+        BCS   CPYMEX
         STAA  ADDR_HI
         JSR   INHEXB
-        BCS   FILLEX
+        BCS   CPYMEX
         STAA  ADDR_LO
         
         LDX   #MSGENDAD   ;Enter End Address:
         JSR   PUTS
         JSR   INHEXB
-        BCS   FILLEX
+        BCS   CPYMEX
         STAA  DISADD1
         JSR   INHEXB
-        BCS   FILLEX 
+        BCS   CPYMEX 
         STAA  DISADD1+1
 
         LDX   #MSGDST   ;Enter Destination Address:
         JSR   PUTS
         JSR   INHEXB
-        BCS   FILLEX
+        BCS   CPYMEX
         STAA  DISADD2
         JSR   INHEXB
-        BCS   FILLEX
+        BCS   CPYMEX
         STAA  DISADD2+1
 
         LDX   ADDR_HI    ;Get address
@@ -3772,6 +3942,7 @@ ENDBASIC     EQU *
 
 
 		org $e000
+
 ; swap ROM into RAM
 
 swp2ram subroutine
@@ -3810,20 +3981,19 @@ swpex ldaa #07		; map ROM to RAM page 7
 	pula
 	rts
         
-
 ; AY test
 
-ymbase	equ $11ec	; EXTSEL external IO triggered in range $11ec - $11ef
+aytest subroutine
 
-ay38910
+aytest
 	pshx
 	psha
 	ldx #ayinit
 .1	ldaa	0,x
-	staa AYSEL+1
+	staa AYSEL
 	inx
 	ldaa	0,x
-	staa AYSEL
+	staa AYSEL+1
 	inx
 	cpx #ayend
 	bne .1
@@ -3831,19 +4001,21 @@ ay38910
 	pulx
 	rts
 
+ymbase	equ $11ec	; EXTSEL external IO triggered in range $11ec - $11ef
+
 ymz284
 	pshx
 	psha
 	ldx #ayinit
 .2	ldaa	0,x
-	staa AYSEL+1
-	ldaa	yminit-ayinit,x
-	staa ymbase+1
-	inx
-	ldaa	0,x
 	staa AYSEL
 	ldaa	yminit-ayinit,x
 	staa ymbase
+	inx
+	ldaa	0,x
+	staa AYSEL+1
+	ldaa	yminit-ayinit,x
+	staa ymbase+1
 	inx
 	cpx #ayend
 	bne .2
@@ -3852,34 +4024,34 @@ ymz284
 	rts
 
 ayinit
-	dc $00,$10	; A fine
-	dc $01,$00	; A coarse
-	dc $02,$20	; B fine
-	dc $03,$00	; B coarse
-	dc $04,$40	; C fine
-	dc $05,$00	; C coarse (4b)
-	dc $06,$07	; noise (5b)
-	dc $07,$F8	; mixer
-	dc $08,$10	; A level
-	dc $09,$10	; B level
-	dc $0a,$10	; C level
+	dc $00,$06	; A fine
+	dc $01,$01	; A coarse
+	dc $02,$06	; B fine
+	dc $03,$01	; B coarse
+	dc $04,$06	; C fine
+	dc $05,$01	; C coarse (4bit)
+	dc $06,$07	; noise (5bit)
+	dc $07,$38	; mixer
+	dc $08,$0f	; A level
+	dc $09,$0f	; B level
+	dc $0a,$0f	; C level
 	dc $0b,$00	; envelope F fine
 	dc $0c,$01	; envelope F coarse
 	dc $0d,$0e	; envelope shape
 ayend equ .
 
 yminit
-	dc $00,$08	; A fine
-	dc $01,$00	; A coarse
-	dc $02,$10	; B fine
-	dc $03,$00	; B coarse
-	dc $04,$20	; C fine
-	dc $05,$00	; C coarse (4b)
-	dc $06,$07	; noise (5b)
-	dc $07,$07<<3	; mixer
-	dc $08,$10	; A level
-	dc $09,$00	; B level
-	dc $0a,$00	; C level
+	dc $00,$0b	; A fine
+	dc $01,$02	; A coarse
+	dc $02,$0b	; B fine
+	dc $03,$02	; B coarse
+	dc $04,$0b	; C fine
+	dc $05,$02	; C coarse (4bit)
+	dc $06,$07	; noise (5bit)
+	dc $07,$38	; mixer
+	dc $08,$0f	; A level
+	dc $09,$0f	; B level
+	dc $0a,$0f	; C level
 	dc $0b,$80	; envelope F fine
 	dc $0c,$00	; envelope F coarse
 	dc $0d,$0e	; envelope shape
@@ -3888,9 +4060,9 @@ ymend equ .
 setayreg
 	psha
 	ldaa #00
-	staa AYSEL+1
-	ldaa #01
 	staa AYSEL
+	ldaa #01
+	staa AYSEL+1
 	pula
 	rts
 
@@ -3903,21 +4075,45 @@ ampltest
 	pshb
 	pshx
 	ldaa #$08		; channel A level
-	staa ymbase+1
+	staa AYSEL
+	staa ymbase
+	ldaa #$00		; set to off
 	staa AYSEL+1
+	staa ymbase+1
+	ldaa #$0a		; channel C level
+	staa AYSEL
+	staa ymbase
+	ldaa #$00		; set to off
+	staa AYSEL+1
+	staa ymbase+1
+	ldaa #$09		; channel B level
+	staa AYSEL
+	staa ymbase
+	ldx #sayamplval
+	jsr txstring
 	ldab #$04
 .7	ldaa #$10
 .4	deca			; first decrement level
-	staa ymbase		; set current level on both chips
-	staa AYSEL
+	staa AYSEL+1
+	staa ymbase+1		; set current level on both chips
+	psha
+	jsr txhex
+	ldaa #$0d
+	jsr txbyte
+	pula
 	ldx #$ffff		; delay loop
 .3	dex
 	bne .3
 	cmpa #$00
 	bne .4		; next level if not 0 yet
 .6	inca			; otherwise start incrementing
-	staa ymbase		; set current level on both chips
-	staa AYSEL
+	staa ymbase+1		; set current level on both chips
+	staa AYSEL+1
+	psha
+	jsr txhex
+	ldaa #$0d
+	jsr txbyte
+	pula
 	ldx #$ffff		; delay loop
 .5	dex
 	bne .5
@@ -3925,6 +4121,13 @@ ampltest
 	bne .6		; done when reached $0f
 	decb
 	bne .7		; do it 4 times
+	jsr txcrlf
+	ldaa #$09		; channel B level
+	staa ymbase
+	staa AYSEL
+	ldaa #$00		; set to off
+	staa ymbase+1		; set current level on both chips
+	staa AYSEL+1
 	pulx
 	pulb
 	pula
@@ -3937,18 +4140,35 @@ envtest
 	pshb
 	pshx
 	ldaa #$08		; channel A level
-	staa ymbase+1
+	staa AYSEL
+	staa ymbase
+	ldaa #$00		; set to off
 	staa AYSEL+1
-	ldaa #$10		; set to 'envelope controlled'
+	staa ymbase+1
+	ldaa #$09		; channel B level
+	staa AYSEL
+	staa ymbase
+	ldaa #$1f		; set to 'envelope controlled'
+	staa AYSEL+1
+	staa ymbase+1
+	ldaa #$0a		; channel C level
+	staa AYSEL
+	staa ymbase
+	ldaa #$00		; set to off
+	staa AYSEL+1
+	staa ymbase+1
+	ldaa #$0d		; select envelope register on both chips
 	staa ymbase
 	staa AYSEL
-	ldaa #$0d		; select envelope register on both chips
-	staa ymbase+1
-	staa AYSEL+1
+	ldx #sayenvnum
+	jsr txstring
 	ldab #$40
 .12	ldaa #$00		; start with envelope #0
-	staa ymbase
-	staa AYSEL
+	staa ymbase+1
+	staa AYSEL+1
+	jsr txhex
+	ldaa #$0d
+	jsr txbyte
 	ldx #$ffff
 .8	dex
 	bne .8
@@ -3956,16 +4176,24 @@ envtest
 	bne .12
 	ldab #$40
 .13	ldaa #$04		; then envelope #$04
-	staa ymbase
-	staa AYSEL
+	staa ymbase+1
+	staa AYSEL+1
+	jsr txhex
+	ldaa #$0d
+	jsr txbyte
 	ldx #$ffff
 .9	dex
 	bne .9
 	decb
 	bne .13
 	ldaa #$08		; then envelope #$08 - $0f
-.11	staa ymbase
-	staa AYSEL
+.11	staa ymbase+1
+	staa AYSEL+1
+	psha
+	jsr txhex
+	ldaa #$0d
+	jsr txbyte
+	pula
 	ldab #$40
 .14	ldx #$ffff
 .10	dex
@@ -3975,46 +4203,170 @@ envtest
 	inca
 	cmpa #$10
 	bne .11
-	ldaa #$08		; channel A level
-	staa ymbase+1
-	staa AYSEL+1
-	ldaa #$0f		; set to 'envelope controlled'
+	ldaa #$07		; disable sound
 	staa ymbase
 	staa AYSEL
+	ldaa #$3f		; disable sound
+	staa ymbase+1
+	staa AYSEL+1
 	pulx
 	pulb
 	pula
 	rts
 
+ayportt subroutine
+
+ayporttest
+	ldx #confaya
+	ldaa #$78		; port A output B input
+	jsr confayAB	; configure AY ports
+	ldx #confayb	; send message about testing port
+	jsr txstring
+
+	ldab #$00
+	stab RAMLO
+.1	ldaa #$0e		; address port A
+	staa AYSEL
+	stab AYSEL+1	; write to port A
+	tba
+	jsr txhexbyte	; display tested value
+	ldaa #" "		; followed by a space
+	jsr txbyte
+	ldaa #$0f		; address port B
+	staa AYSEL
+	ldaa AYSEL+1	; read from port B
+	jsr txhexbyte	; display tested value
+;	jsr txcrlf
+	ldaa #$0d
+	jsr txbyte
+	cmpb AYSEL+1	; compare reg B with value read from port B
+	beq .3
+	jsr cmpayfail
+.3	ldaa #$1
+	jsr dly1
+	incb
+	bne .1		; continue loop for all 255 values
+
+	ldaa #$0a
+	jsr txbyte
+	ldx #confayd	; send message about success
+	jsr txstring
+	ldaa RAMLO
+	beq .5
+	jsr cmpayfailmsg
+	bra .0
+.5	ldx #ok
+	jsr txstring
+	jsr txcrlf
+
+; now test port B as output
+.0	ldx #confayc
+	ldaa #$b8		; port B output A input
+	jsr confayAB	; configure AY ports
+	ldx #confayb	; send message about testing port
+	jsr txstring
+	ldab #$00
+	stab RAMLO
+.2	ldaa #$0f		; address port B
+	staa AYSEL
+	stab AYSEL+1		; write to port B
+	tba
+	jsr txhexbyte	; display tested value
+	ldaa #" "		; followed by a space
+	jsr txbyte
+	ldaa #$0e		; address port A
+	staa AYSEL
+	ldaa AYSEL+1	; read from port A
+	jsr txhexbyte	; display tested value
+;	jsr txcrlf
+	ldaa #$0d
+	jsr txbyte
+	cmpb AYSEL+1	; compare reg B with value read from port A
+	beq .4
+	jsr cmpayfail
+.4	ldaa #$1
+	jsr dly1
+	incb
+	bne .2		; continue loop for all 255 values
+
+	ldaa #$0a
+	jsr txbyte
+	ldx #confaye	; send message about success
+	jsr txstring
+	ldaa RAMLO
+	bne cmpayfailmsg
+	ldx #ok
+	jsr txstring
+	jsr txcrlf
+	bra cmpayxit
+
+cmpayfail
+	ldaa #$0a
+	stab RAMLO
+	jsr txbyte
+	rts
+
+cmpayfailmsg
+	ldx #fail
+	jsr txstring
+	jsr txcrlf
+cmpayxit
+	ldx #confayf
+	ldaa #$38		; both ports inputs
+	jsr confayAB	; configure AY ports
+	rts
+		
+; configure AY ports A and B 
+confayAB
+	psha
+	jsr txstring
+	ldaa #$07		; select register 7
+	staa AYSEL
+	pula
+	staa AYSEL+1		; write to register 7
+	rts
+
 ymz284a
 	psha
 	ldaa #$00
-	staa ymbase+1
+	staa ymbase
 	ldaa #$80
-	staa ymbase		; set frequency of channel A
+	staa ymbase+1		; set frequency of channel A
 	ldaa #$01
-	staa ymbase+1
+	staa ymbase
 	ldaa #$01
-	staa ymbase		; set frequency of channel A
+	staa ymbase+1		; set frequency of channel A
 	ldaa #$7
-	staa ymbase+1
+	staa ymbase
 	ldaa #$7<<3
-	staa ymbase		; enable sound, disable noise
+	staa ymbase+1		; enable sound, disable noise
 	ldaa #$8
-	staa ymbase+1
+	staa ymbase
 	ldaa #$0f
-	staa ymbase	; set volume of channel A
+	staa ymbase+1	; set volume of channel A
 	ldaa #$0c
-	staa ymbase+1
+	staa ymbase
 	ldaa #$04
-	staa ymbase		; envelope frequency
+	staa ymbase+1		; envelope frequency
 	ldaa #$0d
-	staa ymbase+1
+	staa ymbase
 	ldaa #$0d
-	staa ymbase		; envelope
+	staa ymbase+1		; envelope
 
 	pula
 	rts
+
+confaya	dc "Configuring AY PRA output PRB input",$0d,$0a,$0
+confayb	dc "Testing ports",$0d,$0a," W  R",$0d,$0a,$0
+confayc	dc "Configuring AY PRA input PRB output",$0d,$0a,$0
+confayd	dc "A -> B ",$0
+confaye	dc "B -> A ",$0
+confayf	dc "Configuring AY PRA and PRB input",$0d,$0a,$0
+sayinit	dc "Initializing AY chip",$0d,$0a,$0
+sayampl	dc "Testing AY amplitude",$0d,$0a,$0
+sayamplval	dc "amplitude: ",$0d,$0a,$0
+sayenv	dc "Testing AY envelopes",$0d,$0a,$0
+sayenvnum	dc "envelope: ",$0d,$0a,$0
 
 ; connect port A to port B and CA1 to CB2 and CA2 to CB1
 
@@ -4023,6 +4375,7 @@ conf21b	dc "Testing ports",$0d,$0a," W     R",$0d,$0a,$0
 conf21c	dc "Configuring HD6321 PRA input PRB output",$0d,$0a,$0
 conf21d	dc "A -> B ",$0
 conf21e	dc "B -> A ",$0
+conf21f	dc "Configuring HD6321 PRA and PRB input",$0d,$0a,$0
 extram	dc "External RAM ",$0d,$0a,$0
 ok		dc "OK",$0d,$0a,$0
 fail		dc "FAIL",$0d,$0a,$0
@@ -4091,8 +4444,8 @@ test6321
 	jsr txbyte
 	cmpb PRB		; compare reg B with value read from CRB
 	beq .3
-	jsr cmpAfail
-.3	ldaa #$2
+	jsr cmpfail
+.3	ldaa #$1
 	jsr dly1
 	incb
 	bne .1		; continue loop for all 255 values
@@ -4140,8 +4493,8 @@ test6321
 	jsr txbyte
 	cmpb PRA		; compare reg B with value read from CRA
 	beq .4
-	jsr cmpBfail
-.4	ldaa #$2
+	jsr cmpfail
+.4	ldaa #$1
 	jsr dly1
 	incb
 	bne .2		; continue loop for all 255 values
@@ -4155,15 +4508,9 @@ test6321
 	ldx #ok
 	jsr txstring
 	jsr txcrlf
-	rts
+	bra cmpxit
 
-cmpAfail
-	ldaa #$0a
-	stab RAMLO
-	jsr txbyte
-	rts
-
-cmpBfail
+cmpfail
 	ldaa #$0a
 	stab RAMLO
 	jsr txbyte
@@ -4173,8 +4520,25 @@ cmpfailmsg
 	ldx #fail
 	jsr txstring
 	jsr txcrlf
+cmpxit
+	jsr conf21ABin
 	rts
 		
+; configure HD6321 ports A and B as inputs
+conf21ABin
+	ldx #conf21f
+	jsr txstring
+	ldaa #$30		; select DDRB,CA2, CB2 outputs
+	staa CRB		; write that to CRB
+	staa CRA		; write that to CRA
+	ldaa #$00		; all PA PB pins inputs
+	staa DDRA		; DDRA
+	staa DDRB		; DDRB
+	ldaa #$34		; select Peripheral Reg access, Cx2 outputs
+	staa CRA		; write that to CRA
+	staa CRB		; and to CRB
+	rts
+
 ; configure HD6321 port A as output and port B as input
 conf21Aout
 	ldx #conf21a
@@ -4309,18 +4673,19 @@ tsavesub subroutine
 
 tsaveh
 	pshx
-	ldx #8063	; 5 seconds header
-	ldx #9	; 4 pulses for testing
+	ldx #8062	; 5 seconds header
+;	ldx #8	; 8 pulses for testing
 	bra tsave
 
 tsaved
 	pshx
-	ldx #3223	; 2 seconds data
+	ldx #3222	; 2 seconds data
 
 tsave	sei		; disable interrupts
 	ldaa #MIC	; set mic pin
-	ldab #8		; also set B reg
 	bra .0
+
+; delay loop for proper pulse length
 .1	decb
 	nop
 	nop
@@ -4328,16 +4693,16 @@ tsave	sei		; disable interrupts
 .0	staa SNDSEL	; tape output
 	eora #MIC	; invert mic bit
 	ldab #$bb	; timing constant for correct frequency 807Hz. Speccy 3.5MHz / 2168 T-states / 2 pulses per cycle. 619us each pulse
-	dex
-	bne .1	; header length counter
+	dex		; count of lead in pulses
+	bne .1
 
-	ldab #83	; short pulse - 3.5 MHz / 667T = 190us
+	ldab #$54	; short pulse - 3.5 MHz / 667T = 190us
 .2	decb
 	bne .2
 	staa SNDSEL	; tape output
 	eora #MIC	; invert mic bit
 
-	ldab #94	; long pulse - 3.5 MHz / 735T = 210us
+	ldab #$5f	; long pulse - 3.5 MHz / 735T = 210us
 .3	decb
 	bne .3
 	staa SNDSEL	; tape output
@@ -4349,64 +4714,63 @@ tsave	sei		; disable interrupts
 	ldab #8	; bit counter
 
 .8	pshb		; save bit counter
-	ldab #$70	; 0 - 3.5 MHz / 855T = 244us
+	ldab #$68	; 0 - 3.5 MHz / 855T = 244us
 	lsra
 	bcc .4
-	ldab #$e0	; 1 - 3.5 MHz / 1710T = 489us
-.4	psha
-.5	decb
+	ldab #$d8	; 1 - 3.5 MHz / 1710T = 489us
+.4	psha		; save transmitted byte
+.5	decb		; count down pulse length
 	bne .5
-	ldaa SNDSEL
+	ldaa SNDSEL	; get current speaker output value
 	eora #MIC	; invert mic bit
 	staa SNDSEL	; tape output
-	pula
-	ldab #$70	; 0 - 3.5 MHz / 855T = 244us
-	lsra
-	bcc .6
-	ldab #$e0	; 1 - 3.5 MHz / 1710T = 489us
-.6	psha
-.7	decb
-	bne .7
-	ldaa SNDSEL
-	eora #MIC	; invert mic bit
-	staa SNDSEL	; tape output
+
 	pula		; get data byte
 	pulb		; get bit counter
 	decb
-	bne .8	; all bit sent?
+	bne .8	; all bits sent?
 
 	inx		; point to next byte
+
 	pshx
-
-
-	ldx tsavecnt	; get data count
-	dex			; decrement
-	stx tsavecnt	; save for later
+	ldx tsavecnt	; decrement data count
+	dex
 	beq .11		; all data sent?
-
-	pulx		; get address of data
+	stx tsavecnt
+	pulx
 
 	ldaa 0,X	; data to be sent
 	ldab #8	; bit counter
 
 	pshb
-	ldab #$70	; 0 - 3.5 MHz / 855T = 244us
+
+; timing of first bit of the following byte will be affected by above code
+	ldab #$60	; 0 - 3.5 MHz / 855T = 244us
 	lsra
 	bcc .12
-	ldab #$e0	; 1 - 3.5 MHz / 1710T = 489us
+	ldab #$d0	; 1 - 3.5 MHz / 1710T = 489us
 .12	bra .4
 
 .11	pulx
+	ldaa SNDSEL
+	anda ~#MIC	; make sure speaker is off
+	staa SNDSEL	; tape output
 	cli
 	rts
 
 tsavein
 	pshx
-	ldx #$fffe
+	ldx #$0008		; send 8 bytes
+	stx tsavecnt
+	ldx #tap00		; send it
 	jsr tsaveh
 	pulx
 	rts
 
+tap00	dc.b $00,$00
+tapff	dc.b $ff,$ff
+tap55	dc.b $55,$55
+tapaa	dc.b $aa,$aa
 
  ;******************************************************************  
         org  $F840    ; Opcode Type Lookup Table (fixed ROM addr. $F840)
@@ -4568,6 +4932,8 @@ MSG001      dc.b 13,10,"Address:",END
 MSGSTART    dc.b 13,10," Start Address:",END
 MSGENDAD    dc.b 13,10," End Address:",END
 MSGDST      dc.b 13,10," Destination:",END
+MSGRELOC    dc.b 13,10," Enter address in RAM with $",END
+MSGRELOC2   dc.b " bytes free:",END
 MSGUNKCMD   dc.b 13,10,"Unknown command",END
 MSGPROMPT   dc.b 13,10,#'>,END
 MSGPRMPT2   dc.b 13,10,#':,END
@@ -4577,6 +4943,8 @@ MSGSPC4     dc.b "    ",END
 MSGATNRSP   dc.b "$$$",END
 MSGPRT      dc.b " Port#:(2,5 or6)",END
 MSGVAL      dc.b " Value:",END
+MSGLENB     dc.b " Length (1 byte):",END
+MSGADDR     dc.b " Start Addr (2 bytes):",END
 MSGCLS      dc.b 32,27,91,50,74,32,27,91,72,END
 MSGBASIC    dc.b 13,10," NAM MICRO  MICROBASIC V1.3C",END
 MSG19200    dc.b 13,10," Baud Rate to 19200..",END
@@ -4589,6 +4957,7 @@ MSGHLP      dc.b 13,10," ****** Command Menu *****"
             dc.b 13,10," F   Fill Memory          "
             dc.b "  H   High Speed (19200 baud)"
             dc.b 13,10," X   Copy Memory Block    "
+            dc.b "  E   EEPROM Write"
             dc.b 13,10," L   LIST                 "
             dc.b "  A   ASSEMBLE"
             dc.b 13,10," G/g Go                   "
@@ -4597,8 +4966,8 @@ MSGHLP      dc.b 13,10," ****** Command Menu *****"
             dc.b "  I   Read I/O Port"
             dc.b 13,10," f   Flash LEDs 10x       "          
             dc.b "  Z   Beep.."
-            dc.b 13,10," >   Get iHEX Rec(no echo)"
-            dc.b "  <   Send iHEX Rec(no echo)"
+            dc.b 13,10," >/: Get iHEX Rec(no echo)"
+            dc.b "  <   Send iHEX Rec"
             dc.b 13,10," B/b Start Basic          "      
             dc.b "  C   Clear Screen"                   
             dc.b 13,10," M/m Menu                 "

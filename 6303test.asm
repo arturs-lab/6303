@@ -690,18 +690,19 @@ tsavesub subroutine
 
 tsaveh
 	pshx
-	ldx #8063	; 5 seconds header
-;	ldx #4	; 2 pulses for testing
+	ldx #8062	; 5 seconds header
+;	ldx #8	; 8 pulses for testing
 	bra tsave
 
 tsaved
 	pshx
-	ldx #3223	; 2 seconds data
+	ldx #3222	; 2 seconds data
 
 tsave	sei		; disable interrupts
 	ldaa #MIC	; set mic pin
-	ldab #8		; also set B reg
 	bra .0
+
+; delay loop for proper pulse length
 .1	decb
 	nop
 	nop
@@ -709,16 +710,16 @@ tsave	sei		; disable interrupts
 .0	staa SNDSEL	; tape output
 	eora #MIC	; invert mic bit
 	ldab #$bb	; timing constant for correct frequency 807Hz. Speccy 3.5MHz / 2168 T-states / 2 pulses per cycle. 619us each pulse
-	dex
-	bne .1	; header length counter
+	dex		; count of lead in pulses
+	bne .1
 
-	ldab #83	; short pulse - 3.5 MHz / 667T = 190us
+	ldab #$54	; short pulse - 3.5 MHz / 667T = 190us
 .2	decb
 	bne .2
 	staa SNDSEL	; tape output
 	eora #MIC	; invert mic bit
 
-	ldab #94	; long pulse - 3.5 MHz / 735T = 210us
+	ldab #$5f	; long pulse - 3.5 MHz / 735T = 210us
 .3	decb
 	bne .3
 	staa SNDSEL	; tape output
@@ -730,63 +731,64 @@ tsave	sei		; disable interrupts
 	ldab #8	; bit counter
 
 .8	pshb		; save bit counter
-	ldab #$70	; 0 - 3.5 MHz / 855T = 244us
+	ldab #$68	; 0 - 3.5 MHz / 855T = 244us
 	lsra
 	bcc .4
-	ldab #$e0	; 1 - 3.5 MHz / 1710T = 489us
-.4	psha
-.5	decb
+	ldab #$d8	; 1 - 3.5 MHz / 1710T = 489us
+.4	psha		; save transmitted byte
+.5	decb		; count down pulse length
 	bne .5
-	ldaa SNDSEL
+	ldaa SNDSEL	; get current speaker output value
 	eora #MIC	; invert mic bit
 	staa SNDSEL	; tape output
-	pula
-	ldab #$70	; 0 - 3.5 MHz / 855T = 244us
-	lsra
-	bcc .6
-	ldab #$e0	; 1 - 3.5 MHz / 1710T = 489us
-.6	psha
-.7	decb
-	bne .7
-	ldaa SNDSEL
-	eora #MIC	; invert mic bit
-	staa SNDSEL	; tape output
+
 	pula		; get data byte
 	pulb		; get bit counter
 	decb
-	bne .8	; all bit sent?
+	bne .8	; all bits sent?
 
 	inx		; point to next byte
+
 	pshx
-
-
-	ldx tsavecnt	; get data count
-	dex			; decrement
-	stx tsavecnt	; save for later
+	ldx tsavecnt	; decrement data count
+	dex
 	beq .11		; all data sent?
-
-	pulx		; get address of data
+	stx tsavecnt
+	pulx
 
 	ldaa 0,X	; data to be sent
 	ldab #8	; bit counter
 
 	pshb
-	ldab #$70	; 0 - 3.5 MHz / 855T = 244us
+
+; timing of first bit of the following byte will be affected by above code
+	ldab #$60	; 0 - 3.5 MHz / 855T = 244us
 	lsra
 	bcc .12
-	ldab #$e0	; 1 - 3.5 MHz / 1710T = 489us
+	ldab #$d0	; 1 - 3.5 MHz / 1710T = 489us
 .12	bra .4
 
 .11	pulx
+	ldaa SNDSEL
+	anda ~#MIC	; make sure speaker is off
+	staa SNDSEL	; tape output
 	cli
 	rts
 
 tsavein
 	pshx
-	ldx #$fffe
+	ldx #$0008		; send 8 bytes
+	stx tsavecnt
+	ldx #tap00		; send it
 	jsr tsaveh
 	pulx
 	rts
+
+tap00	dc.b $00,$00
+tapff	dc.b $ff,$ff
+tap55	dc.b $55,$55
+tapaa	dc.b $aa,$aa
+
 
 aytest subroutine
 
@@ -803,13 +805,13 @@ ay38910
 	rts
 
 ayinit
-	dc $00,$40	; A fine
-	dc $00,$40	; A coarse
-	dc $00,$40	; B fine
-	dc $03,$01	; B coarse
-	dc $04,$20	; C fine
-	dc $05,$01	; C coarse (4b)
-	dc $06,$07	; noise (5b)
+	dc $00,$10	; A fine
+	dc $01,$00	; A coarse
+	dc $02,$20	; B fine
+	dc $03,$00	; B coarse
+	dc $04,$40	; C fine
+	dc $05,$00	; C coarse (4bit)
+	dc $06,$07	; noise (5bit)
 	dc $07,$07<<3	; mixer
 	dc $08,$10	; A level
 	dc $09,$10	; B level
